@@ -500,44 +500,48 @@ def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
+    pdf.set_left_margin(10)
+    pdf.set_right_margin(10)
 
     # Title
-    pdf.set_font('Helvetica', 'B', 20)
-    pdf.cell(0, 15, f'Assessment Report: {assessment_name}', ln=True, align='C')
+    pdf.set_font('Helvetica', 'B', 18)
+    pdf.cell(0, 12, f'Assessment Report: {assessment_name}', ln=True, align='C')
     pdf.set_font('Helvetica', '', 10)
-    pdf.cell(0, 8, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', ln=True, align='C')
-    pdf.cell(0, 8, f'Total Candidates: {len(results)}', ln=True, align='C')
-    pdf.ln(10)
+    pdf.cell(0, 6, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', ln=True, align='C')
+    pdf.cell(0, 6, f'Total Candidates: {len(results)}', ln=True, align='C')
+    pdf.ln(8)
 
     # Summary stats
     if results:
         scores = [int(r.get("Score") or r.get("Overall Score") or 0) for r in results]
         avg_score = sum(scores) / len(scores) if scores else 0
-        pdf.set_font('Helvetica', 'B', 12)
-        pdf.cell(0, 8, f'Average Score: {avg_score:.1f}', ln=True)
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, f'Average Score: {avg_score:.1f}', ln=True)
         pdf.ln(5)
 
-    # Rankings table
-    pdf.set_font('Helvetica', 'B', 11)
-    pdf.cell(15, 10, 'Rank', border=1)
-    pdf.cell(50, 10, 'Candidate', border=1)
-    pdf.cell(25, 10, 'Score', border=1)
-    pdf.cell(35, 10, 'Recommendation', border=1)
-    pdf.cell(60, 10, 'Summary', border=1)
+    # Rankings table header
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.cell(12, 8, 'Rank', border=1)
+    pdf.cell(45, 8, 'Candidate', border=1)
+    pdf.cell(20, 8, 'Score', border=1)
+    pdf.cell(30, 8, 'Recommend', border=1)
+    pdf.cell(83, 8, 'Summary', border=1)
     pdf.ln()
 
-    pdf.set_font('Helvetica', '', 9)
-    for idx, r in enumerate(results, 1):
-        score = r.get("Score") or r.get("Overall Score") or "-"
-        candidate = (r.get("Candidate", "Unknown")[:20])
-        rec = r.get("Recommendation", "-")
-        summary = (r.get("Summary", "")[:50] + "...") if r.get("Summary") else "-"
+    pdf.set_font('Helvetica', '', 8)
+    for idx, r in enumerate(results[:20], 1):  # Limit to 20 for table
+        score = str(r.get("Score") or r.get("Overall Score") or "-")
+        candidate = str(r.get("Candidate", "Unknown"))[:22]
+        rec = str(r.get("Recommendation", "-"))[:12]
+        summary = str(r.get("Summary", "") or "")[:45]
+        if len(str(r.get("Summary", ""))) > 45:
+            summary += "..."
 
-        pdf.cell(15, 8, str(idx), border=1)
-        pdf.cell(50, 8, candidate, border=1)
-        pdf.cell(25, 8, str(score), border=1)
-        pdf.cell(35, 8, rec, border=1)
-        pdf.cell(60, 8, summary, border=1)
+        pdf.cell(12, 7, str(idx), border=1)
+        pdf.cell(45, 7, candidate, border=1)
+        pdf.cell(20, 7, score, border=1)
+        pdf.cell(30, 7, rec, border=1)
+        pdf.cell(83, 7, summary, border=1)
         pdf.ln()
 
     # Detailed results for each candidate
@@ -547,24 +551,43 @@ def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
     pdf.ln(5)
 
     for idx, r in enumerate(results, 1):
-        pdf.set_font('Helvetica', 'B', 12)
-        pdf.cell(0, 8, f'{idx}. {r.get("Candidate", "Unknown")}', ln=True)
-        pdf.set_font('Helvetica', '', 10)
-        pdf.cell(0, 6, f'Score: {r.get("Score") or r.get("Overall Score") or "-"} | Recommendation: {r.get("Recommendation", "-")}', ln=True)
-        pdf.cell(0, 6, f'Demo: {r.get("Demo", "-")} | Requirements: {r.get("Requirements", "-")} | Communication: {r.get("Communication", "-")}', ln=True)
+        # Check if need new page
+        if pdf.get_y() > 240:
+            pdf.add_page()
 
-        pdf.set_font('Helvetica', 'I', 9)
-        summary = r.get("Summary", "No summary available")
-        pdf.multi_cell(0, 5, f'Summary: {summary}')
+        pdf.set_font('Helvetica', 'B', 11)
+        candidate_name = str(r.get("Candidate", "Unknown"))
+        pdf.cell(0, 7, f'{idx}. {candidate_name}', ln=True)
 
-        if r.get("Strengths"):
-            pdf.set_font('Helvetica', '', 9)
-            pdf.multi_cell(0, 5, f'Strengths: {r.get("Strengths").replace("|", ", ")}')
+        pdf.set_font('Helvetica', '', 9)
+        score_val = r.get("Score") or r.get("Overall Score") or "-"
+        rec_val = r.get("Recommendation", "-")
+        pdf.cell(0, 5, f'Score: {score_val} | Recommendation: {rec_val}', ln=True)
 
-        if r.get("Improvements"):
-            pdf.multi_cell(0, 5, f'Improvements: {r.get("Improvements").replace("|", ", ")}')
+        demo_val = r.get("Demo", "-")
+        req_val = r.get("Requirements", "-")
+        comm_val = r.get("Communication", "-")
+        pdf.cell(0, 5, f'Demo: {demo_val} | Requirements: {req_val} | Communication: {comm_val}', ln=True)
 
-        pdf.ln(5)
+        # Summary
+        summary_text = str(r.get("Summary", "No summary") or "No summary")[:500]
+        pdf.set_font('Helvetica', 'I', 8)
+        pdf.multi_cell(190, 4, f'Summary: {summary_text}')
+
+        # Strengths
+        strengths = r.get("Strengths", "")
+        if strengths:
+            strengths_text = str(strengths).replace("|", ", ")[:300]
+            pdf.set_font('Helvetica', '', 8)
+            pdf.multi_cell(190, 4, f'Strengths: {strengths_text}')
+
+        # Improvements
+        improvements = r.get("Improvements", "")
+        if improvements:
+            improvements_text = str(improvements).replace("|", ", ")[:300]
+            pdf.multi_cell(190, 4, f'Improvements: {improvements_text}')
+
+        pdf.ln(4)
 
     return pdf.output()
 
@@ -574,65 +597,79 @@ def generate_candidate_pdf(result: dict) -> bytes:
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
+    pdf.set_left_margin(10)
+    pdf.set_right_margin(10)
 
     # Header
-    pdf.set_font('Helvetica', 'B', 20)
-    pdf.cell(0, 15, 'Candidate Evaluation Report', ln=True, align='C')
+    pdf.set_font('Helvetica', 'B', 18)
+    pdf.cell(0, 12, 'Candidate Evaluation Report', ln=True, align='C')
     pdf.ln(5)
 
     # Candidate info
+    candidate_name = str(result.get("Candidate", "Unknown"))
     pdf.set_font('Helvetica', 'B', 14)
-    pdf.cell(0, 10, f'Candidate: {result.get("Candidate", "Unknown")}', ln=True)
-    pdf.set_font('Helvetica', '', 11)
-    pdf.cell(0, 7, f'Assessment: {result.get("Assessment", "-")}', ln=True)
-    pdf.cell(0, 7, f'Date: {result.get("Timestamp", "")[:10]}', ln=True)
-    pdf.ln(10)
+    pdf.cell(0, 8, f'Candidate: {candidate_name}', ln=True)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, f'Assessment: {result.get("Assessment", "-")}', ln=True)
+    timestamp = str(result.get("Timestamp", ""))[:10] if result.get("Timestamp") else "-"
+    pdf.cell(0, 6, f'Date: {timestamp}', ln=True)
+    pdf.ln(8)
 
     # Scores box
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(0, 8, 'SCORES', ln=True)
-    pdf.set_font('Helvetica', '', 11)
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(0, 7, 'SCORES', ln=True)
+    pdf.set_font('Helvetica', '', 10)
     score = result.get("Score") or result.get("Overall Score") or "-"
-    pdf.cell(95, 8, f'Overall Score: {score}', border=1)
-    pdf.cell(95, 8, f'Recommendation: {result.get("Recommendation", "-")}', border=1, ln=True)
-    pdf.cell(63, 8, f'Demo: {result.get("Demo", "-")}', border=1)
-    pdf.cell(63, 8, f'Requirements: {result.get("Requirements", "-")}', border=1)
-    pdf.cell(64, 8, f'Communication: {result.get("Communication", "-")}', border=1, ln=True)
-    pdf.ln(10)
+    rec = result.get("Recommendation", "-")
+    pdf.cell(95, 7, f'Overall Score: {score}', border=1)
+    pdf.cell(95, 7, f'Recommendation: {rec}', border=1, ln=True)
+
+    demo = result.get("Demo", "-")
+    req = result.get("Requirements", "-")
+    comm = result.get("Communication", "-")
+    pdf.cell(63, 7, f'Demo: {demo}', border=1)
+    pdf.cell(63, 7, f'Requirements: {req}', border=1)
+    pdf.cell(64, 7, f'Communication: {comm}', border=1, ln=True)
+    pdf.ln(8)
 
     # Summary
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(0, 8, 'SUMMARY', ln=True)
-    pdf.set_font('Helvetica', '', 10)
-    pdf.multi_cell(0, 6, result.get("Summary", "No summary available"))
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(0, 7, 'SUMMARY', ln=True)
+    pdf.set_font('Helvetica', '', 9)
+    summary_text = str(result.get("Summary", "No summary available") or "No summary available")[:1000]
+    pdf.multi_cell(190, 5, summary_text)
     pdf.ln(5)
 
     # Strengths
-    if result.get("Strengths"):
-        pdf.set_font('Helvetica', 'B', 12)
-        pdf.cell(0, 8, 'STRENGTHS', ln=True)
-        pdf.set_font('Helvetica', '', 10)
-        for s in result.get("Strengths", "").split("|"):
+    strengths = result.get("Strengths", "")
+    if strengths:
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'STRENGTHS', ln=True)
+        pdf.set_font('Helvetica', '', 9)
+        for s in str(strengths).split("|"):
             if s.strip():
-                pdf.cell(0, 6, f'  - {s.strip()}', ln=True)
+                pdf.cell(0, 5, f'  - {s.strip()[:100]}', ln=True)
         pdf.ln(5)
 
     # Improvements
-    if result.get("Improvements"):
-        pdf.set_font('Helvetica', 'B', 12)
-        pdf.cell(0, 8, 'AREAS FOR IMPROVEMENT', ln=True)
-        pdf.set_font('Helvetica', '', 10)
-        for i in result.get("Improvements", "").split("|"):
+    improvements = result.get("Improvements", "")
+    if improvements:
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'AREAS FOR IMPROVEMENT', ln=True)
+        pdf.set_font('Helvetica', '', 9)
+        for i in str(improvements).split("|"):
             if i.strip():
-                pdf.cell(0, 6, f'  - {i.strip()}', ln=True)
+                pdf.cell(0, 5, f'  - {i.strip()[:100]}', ln=True)
         pdf.ln(5)
 
     # Detailed feedback
-    if result.get("Feedback"):
-        pdf.set_font('Helvetica', 'B', 12)
-        pdf.cell(0, 8, 'DETAILED FEEDBACK', ln=True)
-        pdf.set_font('Helvetica', '', 10)
-        pdf.multi_cell(0, 6, result.get("Feedback", ""))
+    feedback = result.get("Feedback", "")
+    if feedback:
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'DETAILED FEEDBACK', ln=True)
+        pdf.set_font('Helvetica', '', 9)
+        feedback_text = str(feedback)[:2000]
+        pdf.multi_cell(190, 5, feedback_text)
 
     return pdf.output()
 
