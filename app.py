@@ -1,0 +1,851 @@
+"""
+Loom Evaluation System - Plivo
+"""
+
+import streamlit as st
+from google import genai
+from google.genai import types
+import tempfile
+import os
+import json
+import csv
+import time
+from datetime import datetime
+import PyPDF2
+import io
+
+# Page config - must be first
+st.set_page_config(
+    page_title="Loom Evaluation System | Plivo",
+    page_icon="🎯",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Clean minimal CSS
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Reset and base */
+*, *::before, *::after { box-sizing: border-box; }
+
+.stApp {
+    background: #0f0f0f;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Hide default elements */
+#MainMenu, footer, header { visibility: hidden; }
+.stDeployButton { display: none; }
+
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #064e3b 0%, #047857 100%);
+    padding-top: 0;
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown {
+    color: #ffffff !important;
+}
+
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] h4,
+[data-testid="stSidebar"] h5 {
+    color: #ffffff !important;
+}
+
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255,255,255,0.2) !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stMetricValue"] {
+    color: #ffffff !important;
+    font-size: 28px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] {
+    color: rgba(255,255,255,0.8) !important;
+}
+
+[data-testid="stSidebar"] input {
+    background: rgba(255,255,255,0.1) !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
+    color: #ffffff !important;
+}
+
+[data-testid="stSidebar"] .stDownloadButton button {
+    background: rgba(255,255,255,0.15) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
+}
+
+/* Main content */
+.main .block-container {
+    padding: 2rem 3rem;
+    max-width: 1200px;
+}
+
+/* Typography in main area */
+.main h1 { color: #ffffff !important; font-weight: 700 !important; font-size: 2rem !important; }
+.main h2 { color: #f1f5f9 !important; font-weight: 600 !important; font-size: 1.5rem !important; }
+.main h3 { color: #e2e8f0 !important; font-weight: 600 !important; font-size: 1.25rem !important; }
+.main p, .main span, .main label, .main li { color: #cbd5e1 !important; }
+
+/* Cards */
+.eval-card {
+    background: #1a1a1a;
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    border: 1px solid #2a2a2a;
+    margin-bottom: 20px;
+}
+
+/* Score display */
+.score-card {
+    background: #1a1a1a;
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+    border: 1px solid #2a2a2a;
+}
+
+.score-value {
+    font-size: 42px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 8px;
+}
+
+.score-label {
+    font-size: 13px;
+    color: #94a3b8;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.score-green { color: #059669; }
+.score-yellow { color: #d97706; }
+.score-red { color: #dc2626; }
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    background: #1a1a1a;
+    border-radius: 12px;
+    padding: 6px;
+    gap: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    border: 1px solid #2a2a2a;
+}
+
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px;
+    color: #94a3b8 !important;
+    font-weight: 500;
+    padding: 12px 24px;
+}
+
+.stTabs [aria-selected="true"] {
+    background: #059669 !important;
+    color: #ffffff !important;
+}
+
+/* Buttons */
+.stButton > button {
+    background: #059669 !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    padding: 12px 28px !important;
+    font-size: 15px !important;
+    transition: all 0.15s ease !important;
+}
+
+.stButton > button:hover {
+    background: #047857 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3) !important;
+}
+
+/* Inputs */
+.stTextInput input, .stTextArea textarea {
+    background: #1a1a1a !important;
+    border: 2px solid #2a2a2a !important;
+    border-radius: 10px !important;
+    color: #ffffff !important;
+    font-size: 15px !important;
+    padding: 12px 16px !important;
+}
+
+.stTextInput input:focus, .stTextArea textarea:focus {
+    border-color: #059669 !important;
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.25) !important;
+}
+
+.stTextInput label, .stTextArea label, .stSelectbox label, .stFileUploader label {
+    color: #e2e8f0 !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    margin-bottom: 6px !important;
+}
+
+/* Select boxes */
+.stSelectbox > div > div {
+    background: #1a1a1a !important;
+    border: 2px solid #2a2a2a !important;
+    border-radius: 10px !important;
+    color: #ffffff !important;
+}
+
+/* File uploader */
+[data-testid="stFileUploader"] {
+    background: #1a1a1a;
+    border: 2px dashed #3a3a3a;
+    border-radius: 12px;
+    padding: 24px;
+}
+
+[data-testid="stFileUploader"]:hover {
+    border-color: #059669;
+    background: #0a2018;
+}
+
+/* Radio buttons */
+.stRadio > div {
+    background: #1a1a1a;
+    border-radius: 10px;
+    padding: 8px 12px;
+    border: 1px solid #2a2a2a;
+}
+
+.stRadio label { color: #e2e8f0 !important; }
+
+/* Alerts */
+.stSuccess { background: #052e16 !important; border-left: 4px solid #059669 !important; color: #86efac !important; }
+.stInfo { background: #1e3a5f !important; border-left: 4px solid #3b82f6 !important; color: #93c5fd !important; }
+.stWarning { background: #422006 !important; border-left: 4px solid #f59e0b !important; color: #fcd34d !important; }
+.stError { background: #450a0a !important; border-left: 4px solid #ef4444 !important; color: #fca5a5 !important; }
+
+/* Expander */
+.streamlit-expanderHeader {
+    background: #1a1a1a !important;
+    border: 1px solid #2a2a2a !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    color: #e2e8f0 !important;
+}
+
+/* Video */
+video { border-radius: 12px; }
+
+/* Metrics */
+[data-testid="stMetricValue"] { color: #ffffff !important; }
+[data-testid="stMetricLabel"] { color: #94a3b8 !important; }
+
+/* Custom header */
+.app-header {
+    background: #1a1a1a;
+    padding: 20px 28px;
+    border-radius: 16px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    border: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.app-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0;
+}
+
+.app-subtitle {
+    font-size: 14px;
+    color: #94a3b8;
+    margin: 4px 0 0 0;
+}
+
+.plivo-badge {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    color: white;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* Section headers */
+.section-header {
+    font-size: 14px;
+    font-weight: 700;
+    color: #10b981;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #10b981;
+}
+
+/* Results grid */
+.results-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin: 20px 0;
+}
+
+/* Footer */
+.app-footer {
+    text-align: center;
+    padding: 24px;
+    color: #64748b;
+    font-size: 13px;
+    border-top: 1px solid #2a2a2a;
+    margin-top: 40px;
+}
+
+.app-footer a {
+    color: #10b981;
+    text-decoration: none;
+    font-weight: 500;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Constants
+RESULTS_FILE = "evaluation_results.csv"
+KB_DIR = "knowledge_base"
+
+os.makedirs(KB_DIR, exist_ok=True)
+
+
+def extract_text_from_file(uploaded_file) -> str:
+    content = uploaded_file.read()
+    filename = uploaded_file.name.lower()
+    try:
+        if filename.endswith('.pdf'):
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+            return "\n".join(page.extract_text() or "" for page in pdf_reader.pages)
+        elif filename.endswith('.txt') or filename.endswith('.md'):
+            return content.decode('utf-8')
+        elif filename.endswith('.docx'):
+            import zipfile
+            from xml.etree import ElementTree
+            with zipfile.ZipFile(io.BytesIO(content)) as z:
+                tree = ElementTree.fromstring(z.read('word/document.xml'))
+                return " ".join(elem.text for elem in tree.iter() if elem.text)
+        return content.decode('utf-8', errors='ignore')
+    except Exception as e:
+        return f"[Error: {e}]"
+
+
+def save_kb_document(assessment_name: str, doc_name: str, doc_type: str, content: str):
+    assessment_dir = os.path.join(KB_DIR, assessment_name.replace(" ", "_"))
+    os.makedirs(assessment_dir, exist_ok=True)
+    with open(os.path.join(assessment_dir, f"{doc_type}_{doc_name}.txt"), 'w') as f:
+        f.write(content)
+
+
+def load_kb_for_assessment(assessment_name: str) -> dict:
+    assessment_dir = os.path.join(KB_DIR, assessment_name.replace(" ", "_"))
+    kb = {"job_description": "", "evaluation_criteria": "", "technical_requirements": "", "other": ""}
+    if not os.path.exists(assessment_dir):
+        return kb
+    for filename in os.listdir(assessment_dir):
+        with open(os.path.join(assessment_dir, filename), 'r') as f:
+            content = f.read()
+        if filename.startswith("jd_"):
+            kb["job_description"] += content + "\n"
+        elif filename.startswith("criteria_"):
+            kb["evaluation_criteria"] += content + "\n"
+        elif filename.startswith("tech_"):
+            kb["technical_requirements"] += content + "\n"
+        else:
+            kb["other"] += content + "\n"
+    return kb
+
+
+def get_saved_assessments() -> list:
+    if not os.path.exists(KB_DIR):
+        return []
+    return [d.replace("_", " ") for d in os.listdir(KB_DIR) if os.path.isdir(os.path.join(KB_DIR, d))]
+
+
+def evaluate_video_with_gemini(video_path, candidate_name, assessment_name, knowledge_base, additional_notes):
+    client = genai.Client(api_key=st.session_state.api_key)
+
+    with open(video_path, 'rb') as f:
+        video_file = client.files.upload(file=f, config=types.UploadFileConfig(mime_type="video/mp4"))
+
+    while video_file.state == "PROCESSING":
+        time.sleep(2)
+        video_file = client.files.get(name=video_file.name)
+
+    if video_file.state == "FAILED":
+        raise Exception("Video processing failed")
+
+    kb_context = ""
+    if knowledge_base.get("job_description"):
+        kb_context += f"\n## JOB DESCRIPTION\n{knowledge_base['job_description']}"
+    if knowledge_base.get("evaluation_criteria"):
+        kb_context += f"\n## EVALUATION CRITERIA\n{knowledge_base['evaluation_criteria']}"
+    if knowledge_base.get("technical_requirements"):
+        kb_context += f"\n## TECHNICAL REQUIREMENTS\n{knowledge_base['technical_requirements']}"
+
+    prompt = f"""Evaluate this candidate's Loom demo video thoroughly.
+
+**Assessment Type:** {assessment_name}
+**Candidate:** {candidate_name}
+{kb_context}
+{f"**Additional Notes:** {additional_notes}" if additional_notes else ""}
+
+Analyze the video carefully and provide a detailed JSON response with these exact fields:
+{{
+    "score": <integer 0-100>,
+    "recommendation": "<STRONG_YES|YES|MAYBE|NO>",
+    "summary": "<2-3 sentence summary>",
+    "demo_score": <integer 0-100>,
+    "requirements_score": <integer 0-100>,
+    "communication_score": <integer 0-100>,
+    "demo_working": <true or false>,
+    "communication_clear": <true or false>,
+    "strengths": ["strength 1", "strength 2", ...],
+    "improvements": ["area 1", "area 2", ...],
+    "requirements_met": ["req 1", "req 2", ...],
+    "requirements_missing": ["req 1", "req 2", ...],
+    "key_moments": [{{"time": "MM:SS", "note": "description", "type": "positive|negative|neutral"}}],
+    "detailed_feedback": "detailed paragraph of feedback"
+}}
+
+IMPORTANT: Return ONLY valid JSON, no other text."""
+
+    response = client.models.generate_content(
+        model="models/gemini-2.5-flash",
+        contents=[types.Content(parts=[
+            types.Part.from_uri(file_uri=video_file.uri, mime_type="video/mp4"),
+            types.Part(text=prompt)
+        ])],
+        config=types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
+    )
+
+    try:
+        client.files.delete(name=video_file.name)
+    except:
+        pass
+
+    try:
+        result = json.loads(response.text)
+    except:
+        # Try to extract JSON from response
+        text = response.text
+        start = text.find('{')
+        end = text.rfind('}') + 1
+        if start != -1 and end > start:
+            result = json.loads(text[start:end])
+        else:
+            result = {"score": 50, "summary": text[:500], "recommendation": "MAYBE"}
+
+    return result
+
+
+def save_result(result, candidate_name, assessment_name):
+    exists = os.path.exists(RESULTS_FILE)
+    with open(RESULTS_FILE, 'a', newline='') as f:
+        writer = csv.writer(f)
+        if not exists:
+            writer.writerow(["Timestamp", "Candidate", "Assessment", "Score", "Demo", "Requirements",
+                           "Communication", "Recommendation", "Summary", "Strengths", "Improvements",
+                           "Met", "Missing", "Demo Working", "Comm Clear", "Moments", "Feedback"])
+        writer.writerow([
+            datetime.now().isoformat(),
+            candidate_name,
+            assessment_name,
+            result.get("score"),
+            result.get("demo_score"),
+            result.get("requirements_score"),
+            result.get("communication_score"),
+            result.get("recommendation"),
+            result.get("summary"),
+            "|".join(result.get("strengths", [])),
+            "|".join(result.get("improvements", [])),
+            "|".join(result.get("requirements_met", [])),
+            "|".join(result.get("requirements_missing", [])),
+            result.get("demo_working"),
+            result.get("communication_clear"),
+            json.dumps(result.get("key_moments", [])),
+            result.get("detailed_feedback")
+        ])
+
+
+def load_results():
+    if not os.path.exists(RESULTS_FILE):
+        return []
+    with open(RESULTS_FILE, 'r') as f:
+        return list(csv.DictReader(f))
+
+
+# Initialize session state
+if 'api_key' not in st.session_state:
+    st.session_state.api_key = os.getenv('GOOGLE_GEMINI_API_KEY', '')
+
+# ============== SIDEBAR ==============
+with st.sidebar:
+    # Display Plivo logo
+    logo_path = os.path.join(os.path.dirname(__file__), "plivo_logo.png")
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=140)
+    else:
+        st.markdown('<div style="font-size: 28px; font-weight: 700; color: #ffffff;">plivo</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
+        Loom Evaluation System
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("##### ⚙️ Settings")
+    api_key = st.text_input("Gemini API Key", value=st.session_state.api_key, type="password",
+                           help="Enter your Google Gemini API key")
+    if api_key:
+        st.session_state.api_key = api_key
+
+    st.markdown("---")
+    st.markdown("##### 📊 Statistics")
+
+    col1, col2 = st.columns(2)
+    col1.metric("Evaluations", len(load_results()))
+    col2.metric("Assessments", len(get_saved_assessments()))
+
+    if os.path.exists(RESULTS_FILE):
+        st.markdown("---")
+        with open(RESULTS_FILE, 'r') as f:
+            st.download_button("📥 Export All Results", f.read(), "evaluations.csv", "text/csv",
+                             use_container_width=True)
+
+# ============== MAIN CONTENT ==============
+
+# Header
+st.markdown("""
+<div class="app-header">
+    <div style="flex: 1;">
+        <h1 class="app-title">🎯 Loom Evaluation System</h1>
+        <p class="app-subtitle">AI-powered technical demo evaluation for hiring</p>
+    </div>
+    <div class="plivo-badge">PLIVO</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📹 New Evaluation", "📚 Knowledge Base", "📊 Results History"])
+
+# ============== TAB 1: NEW EVALUATION ==============
+with tab1:
+    col1, col2 = st.columns([1, 1], gap="large")
+
+    with col1:
+        st.markdown('<div class="section-header">Assessment Details</div>', unsafe_allow_html=True)
+
+        saved = get_saved_assessments()
+        if saved:
+            use_existing = st.radio("Assessment type", ["Use existing", "Create new"],
+                                   horizontal=True, label_visibility="collapsed")
+            if use_existing == "Use existing":
+                assessment_name = st.selectbox("Select Assessment", saved)
+            else:
+                assessment_name = st.text_input("Assessment Name", placeholder="e.g., Backend Engineer Q1 2024")
+        else:
+            assessment_name = st.text_input("Assessment Name", placeholder="e.g., Backend Engineer Q1 2024")
+
+        candidate_name = st.text_input("Candidate Name", placeholder="e.g., John Smith")
+        notes = st.text_area("Additional Notes (Optional)",
+                            placeholder="Any specific areas to focus on during evaluation...",
+                            height=100)
+
+        if assessment_name:
+            kb = load_kb_for_assessment(assessment_name)
+            if any(kb.values()):
+                st.success(f"✅ Knowledge base loaded for **{assessment_name}**")
+            else:
+                st.info("💡 No evaluation criteria uploaded. Add documents in the Knowledge Base tab.")
+
+    with col2:
+        st.markdown('<div class="section-header">Video Upload</div>', unsafe_allow_html=True)
+        video = st.file_uploader("Upload Loom Recording", type=["mp4", "webm", "mov"],
+                                help="Download your Loom video and upload it here")
+        if video:
+            st.video(video)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Evaluate button
+    if st.button("🚀 Start Evaluation", type="primary", use_container_width=True):
+        if not st.session_state.api_key:
+            st.error("⚠️ Please enter your Gemini API key in the sidebar")
+        elif not candidate_name:
+            st.error("⚠️ Please enter the candidate's name")
+        elif not assessment_name:
+            st.error("⚠️ Please enter or select an assessment")
+        elif not video:
+            st.error("⚠️ Please upload a video file")
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                tmp.write(video.read())
+                tmp_path = tmp.name
+
+            kb = load_kb_for_assessment(assessment_name)
+
+            with st.status("🔄 Analyzing video with AI...", expanded=True) as status:
+                st.write("📤 Uploading video to Gemini...")
+                try:
+                    result = evaluate_video_with_gemini(tmp_path, candidate_name, assessment_name, kb, notes)
+                    st.write("💾 Saving results...")
+                    save_result(result, candidate_name, assessment_name)
+                    status.update(label="✅ Evaluation Complete!", state="complete")
+
+                    os.unlink(tmp_path)
+
+                    # ============== DISPLAY RESULTS ==============
+                    st.markdown("---")
+                    st.markdown("## 📋 Evaluation Results")
+
+                    # Score cards row
+                    c1, c2, c3, c4 = st.columns(4)
+
+                    # Overall score with proper None handling
+                    score = result.get('score')
+                    if score is None:
+                        score = result.get('overall_score')
+                    score = int(score) if score is not None else 0
+
+                    score_class = "score-green" if score >= 70 else "score-yellow" if score >= 50 else "score-red"
+                    c1.markdown(f'''
+                    <div class="score-card">
+                        <div class="score-value {score_class}">{score}</div>
+                        <div class="score-label">Overall Score</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                    rec = result.get("recommendation") or "MAYBE"
+                    rec_class = "score-green" if rec in ["STRONG_YES", "YES"] else "score-yellow" if rec == "MAYBE" else "score-red"
+                    rec_display = rec.replace("_", " ")
+                    c2.markdown(f'''
+                    <div class="score-card">
+                        <div class="score-value {rec_class}" style="font-size: 24px;">{rec_display}</div>
+                        <div class="score-label">Recommendation</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                    demo_working = result.get("demo_working")
+                    demo_text = "YES" if demo_working else "NO"
+                    demo_class = "score-green" if demo_working else "score-red"
+                    c3.markdown(f'''
+                    <div class="score-card">
+                        <div class="score-value {demo_class}">{demo_text}</div>
+                        <div class="score-label">Demo Working</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                    comm_clear = result.get("communication_clear")
+                    comm_text = "YES" if comm_clear else "NO"
+                    comm_class = "score-green" if comm_clear else "score-red"
+                    c4.markdown(f'''
+                    <div class="score-card">
+                        <div class="score-value {comm_class}">{comm_text}</div>
+                        <div class="score-label">Communication</div>
+                    </div>
+                    ''', unsafe_allow_html=True)
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                    # Category scores
+                    c1, c2, c3 = st.columns(3)
+                    demo_score = result.get('demo_score')
+                    req_score = result.get('requirements_score')
+                    comm_score = result.get('communication_score')
+
+                    c1.metric("🎬 Demo Score", f"{demo_score if demo_score is not None else '-'}/100")
+                    c2.metric("📋 Requirements", f"{req_score if req_score is not None else '-'}/100")
+                    c3.metric("🗣️ Communication", f"{comm_score if comm_score is not None else '-'}/100")
+
+                    # Summary
+                    st.markdown("### 📝 Summary")
+                    st.info(result.get("summary", "No summary available"))
+
+                    # Strengths and improvements
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("### 💪 Strengths")
+                        strengths = result.get("strengths", [])
+                        if strengths:
+                            for s in strengths:
+                                st.markdown(f"✅ {s}")
+                        else:
+                            st.write("No specific strengths noted")
+
+                    with c2:
+                        st.markdown("### 📈 Areas for Improvement")
+                        improvements = result.get("improvements", [])
+                        if improvements:
+                            for i in improvements:
+                                st.markdown(f"🔸 {i}")
+                        else:
+                            st.write("No specific improvements noted")
+
+                    # Requirements
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        reqs_met = result.get("requirements_met", [])
+                        if reqs_met:
+                            st.markdown("### ✅ Requirements Met")
+                            for r in reqs_met:
+                                st.markdown(f"• {r}")
+
+                    with c2:
+                        reqs_missing = result.get("requirements_missing", [])
+                        if reqs_missing:
+                            st.markdown("### ❌ Requirements Missing")
+                            for r in reqs_missing:
+                                st.markdown(f"• {r}")
+
+                    # Key moments
+                    moments = result.get("key_moments", [])
+                    if moments:
+                        st.markdown("### ⏱️ Key Moments")
+                        for m in moments:
+                            moment_type = m.get("type", "neutral")
+                            icon = "🟢" if moment_type == "positive" else "🔴" if moment_type == "negative" else "🔵"
+                            st.markdown(f"**{m.get('time', '00:00')}** {icon} {m.get('note', '')}")
+
+                    # Detailed feedback
+                    feedback = result.get("detailed_feedback")
+                    if feedback:
+                        st.markdown("### 📄 Detailed Feedback")
+                        st.write(feedback)
+
+                except Exception as e:
+                    status.update(label="❌ Evaluation Failed", state="error")
+                    st.error(f"Error: {str(e)}")
+                    os.unlink(tmp_path)
+
+# ============== TAB 2: KNOWLEDGE BASE ==============
+with tab2:
+    st.markdown('<div class="section-header">Knowledge Base Management</div>', unsafe_allow_html=True)
+    st.markdown("Upload evaluation criteria, job descriptions, and requirements for each assessment type.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    kb_name = st.text_input("Assessment Name", key="kb_assessment",
+                           placeholder="e.g., Backend Engineer Q1 2024")
+
+    if kb_name:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2, gap="large")
+
+        with c1:
+            st.markdown("**📄 Job Description**")
+            jd = st.file_uploader("Upload JD document", ["pdf", "txt", "docx", "md"], key="jd")
+            if jd:
+                save_kb_document(kb_name, jd.name, "jd", extract_text_from_file(jd))
+                st.success("✅ Job description saved!")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            st.markdown("**📋 Evaluation Criteria**")
+            crit = st.file_uploader("Upload criteria document", ["pdf", "txt", "docx", "md"], key="crit")
+            if crit:
+                save_kb_document(kb_name, crit.name, "criteria", extract_text_from_file(crit))
+                st.success("✅ Evaluation criteria saved!")
+
+        with c2:
+            st.markdown("**⚙️ Technical Requirements**")
+            tech = st.file_uploader("Upload requirements document", ["pdf", "txt", "docx", "md"], key="tech")
+            if tech:
+                save_kb_document(kb_name, tech.name, "tech", extract_text_from_file(tech))
+                st.success("✅ Technical requirements saved!")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            st.markdown("**📎 Other Documents**")
+            other = st.file_uploader("Upload other documents", ["pdf", "txt", "docx", "md"], key="other")
+            if other:
+                save_kb_document(kb_name, other.name, "other", extract_text_from_file(other))
+                st.success("✅ Document saved!")
+
+        st.markdown("---")
+
+        saved_assessments = get_saved_assessments()
+        if saved_assessments:
+            st.markdown("### 📁 Existing Assessments")
+            for a in saved_assessments:
+                st.markdown(f"• **{a}**")
+
+# ============== TAB 3: RESULTS ==============
+with tab3:
+    results = load_results()
+
+    if not results:
+        st.info("📭 No evaluations yet. Complete your first evaluation to see results here!")
+    else:
+        st.markdown('<div class="section-header">Evaluation History</div>', unsafe_allow_html=True)
+
+        # Filters
+        c1, c2, c3 = st.columns([2, 2, 1])
+        assessments = list(set(r.get("Assessment", "") for r in results if r.get("Assessment")))
+        filter_assessment = c1.selectbox("Filter by Assessment", ["All"] + assessments)
+        filter_rec = c2.selectbox("Filter by Recommendation", ["All", "STRONG_YES", "YES", "MAYBE", "NO"])
+
+        # Apply filters
+        filtered = [r for r in results
+                   if (filter_assessment == "All" or r.get("Assessment") == filter_assessment)
+                   and (filter_rec == "All" or r.get("Recommendation") == filter_rec)]
+
+        c3.metric("Results", len(filtered))
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Display results
+        for r in reversed(filtered):
+            rec = r.get('Recommendation', '')
+            icon = "🟢" if rec in ["STRONG_YES", "YES"] else "🟡" if rec == "MAYBE" else "🔴"
+            # Handle both "Score" and "Overall Score" column names
+            score = r.get('Score') or r.get('Overall Score') or '-'
+
+            with st.expander(f"{icon} **{r.get('Candidate', 'Unknown')}** — {r.get('Assessment', '')} — Score: {score}"):
+                c1, c2, c3, c4 = st.columns(4)
+                c1.markdown(f"**📅 Date:** {r.get('Timestamp', '')[:10]}")
+                c2.markdown(f"**🎯 Recommendation:** {rec}")
+
+                # Show sub-scores
+                demo_s = r.get('Demo') or r.get('Demo Score') or '-'
+                req_s = r.get('Requirements') or r.get('Requirements Score') or '-'
+                comm_s = r.get('Communication') or r.get('Communication Score') or '-'
+                c3.markdown(f"**🎬 Demo:** {demo_s}")
+                c4.markdown(f"**🗣️ Comm:** {comm_s}")
+
+                st.markdown(f"**📝 Summary:** {r.get('Summary', 'N/A')}")
+
+                if r.get('Strengths'):
+                    st.markdown(f"**💪 Strengths:** {r.get('Strengths').replace('|', ', ')}")
+                if r.get('Improvements'):
+                    st.markdown(f"**📈 Improvements:** {r.get('Improvements').replace('|', ', ')}")
+
+# Footer
+st.markdown("""
+<div class="app-footer">
+    Powered by <strong>Google Gemini AI</strong> • Built with <strong>Streamlit</strong> •
+    <a href="https://plivo.com" target="_blank">Plivo</a>
+</div>
+""", unsafe_allow_html=True)
