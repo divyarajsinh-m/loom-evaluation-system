@@ -1,5 +1,6 @@
 """
 Loom Evaluation System - Plivo
+With Loom URL support, Batch Processing & Ranking
 """
 
 import streamlit as st
@@ -13,6 +14,8 @@ import time
 from datetime import datetime
 import PyPDF2
 import io
+import subprocess
+import re
 
 # Page config - must be first
 st.set_page_config(
@@ -27,7 +30,6 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-/* Reset and base */
 *, *::before, *::after { box-sizing: border-box; }
 
 .stApp {
@@ -35,11 +37,9 @@ st.markdown("""
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Hide default elements */
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none; }
 
-/* Sidebar styling */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #064e3b 0%, #047857 100%);
     padding-top: 0;
@@ -52,284 +52,114 @@ st.markdown("""
     color: #ffffff !important;
 }
 
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3,
-[data-testid="stSidebar"] h4,
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3, [data-testid="stSidebar"] h4,
 [data-testid="stSidebar"] h5 {
     color: #ffffff !important;
 }
 
-[data-testid="stSidebar"] hr {
-    border-color: rgba(255,255,255,0.2) !important;
-}
+[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.2) !important; }
+[data-testid="stSidebar"] [data-testid="stMetricValue"] { color: #ffffff !important; font-size: 28px !important; }
+[data-testid="stSidebar"] [data-testid="stMetricLabel"] { color: rgba(255,255,255,0.8) !important; }
+[data-testid="stSidebar"] input { background: rgba(255,255,255,0.1) !important; border: 1px solid rgba(255,255,255,0.3) !important; color: #ffffff !important; }
+[data-testid="stSidebar"] .stDownloadButton button { background: rgba(255,255,255,0.15) !important; color: #ffffff !important; border: 1px solid rgba(255,255,255,0.3) !important; }
 
-[data-testid="stSidebar"] [data-testid="stMetricValue"] {
-    color: #ffffff !important;
-    font-size: 28px !important;
-}
+.main .block-container { padding: 2rem 3rem; max-width: 1200px; }
 
-[data-testid="stSidebar"] [data-testid="stMetricLabel"] {
-    color: rgba(255,255,255,0.8) !important;
-}
-
-[data-testid="stSidebar"] input {
-    background: rgba(255,255,255,0.1) !important;
-    border: 1px solid rgba(255,255,255,0.3) !important;
-    color: #ffffff !important;
-}
-
-[data-testid="stSidebar"] .stDownloadButton button {
-    background: rgba(255,255,255,0.15) !important;
-    color: #ffffff !important;
-    border: 1px solid rgba(255,255,255,0.3) !important;
-}
-
-/* Main content */
-.main .block-container {
-    padding: 2rem 3rem;
-    max-width: 1200px;
-}
-
-/* Typography in main area */
 .main h1 { color: #ffffff !important; font-weight: 700 !important; font-size: 2rem !important; }
 .main h2 { color: #f1f5f9 !important; font-weight: 600 !important; font-size: 1.5rem !important; }
 .main h3 { color: #e2e8f0 !important; font-weight: 600 !important; font-size: 1.25rem !important; }
 .main p, .main span, .main label, .main li { color: #cbd5e1 !important; }
 
-/* Cards */
-.eval-card {
-    background: #1a1a1a;
-    border-radius: 16px;
-    padding: 28px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    border: 1px solid #2a2a2a;
-    margin-bottom: 20px;
-}
+.eval-card { background: #1a1a1a; border-radius: 16px; padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: 1px solid #2a2a2a; margin-bottom: 20px; }
 
-/* Score display */
-.score-card {
-    background: #1a1a1a;
-    border-radius: 16px;
-    padding: 24px;
-    text-align: center;
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
-    border: 1px solid #2a2a2a;
-}
-
-.score-value {
-    font-size: 42px;
-    font-weight: 700;
-    line-height: 1;
-    margin-bottom: 8px;
-}
-
-.score-label {
-    font-size: 13px;
-    color: #94a3b8;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
+.score-card { background: #1a1a1a; border-radius: 16px; padding: 24px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); border: 1px solid #2a2a2a; }
+.score-value { font-size: 42px; font-weight: 700; line-height: 1; margin-bottom: 8px; }
+.score-label { font-size: 13px; color: #94a3b8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
 .score-green { color: #059669; }
 .score-yellow { color: #d97706; }
 .score-red { color: #dc2626; }
 
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    background: #1a1a1a;
-    border-radius: 12px;
-    padding: 6px;
-    gap: 4px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    border: 1px solid #2a2a2a;
-}
+.rank-card { background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%); border-radius: 16px; padding: 20px; margin: 10px 0; border-left: 4px solid #059669; }
+.rank-1 { border-left-color: #fbbf24; background: linear-gradient(135deg, #1a1a1a 0%, #2d2a1a 100%); }
+.rank-2 { border-left-color: #9ca3af; background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%); }
+.rank-3 { border-left-color: #b45309; background: linear-gradient(135deg, #1a1a1a 0%, #2a2520 100%); }
 
-.stTabs [data-baseweb="tab"] {
-    border-radius: 8px;
-    color: #94a3b8 !important;
-    font-weight: 500;
-    padding: 12px 24px;
-}
+.stTabs [data-baseweb="tab-list"] { background: #1a1a1a; border-radius: 12px; padding: 6px; gap: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: 1px solid #2a2a2a; }
+.stTabs [data-baseweb="tab"] { border-radius: 8px; color: #94a3b8 !important; font-weight: 500; padding: 12px 24px; }
+.stTabs [aria-selected="true"] { background: #059669 !important; color: #ffffff !important; }
 
-.stTabs [aria-selected="true"] {
-    background: #059669 !important;
-    color: #ffffff !important;
-}
+.stButton > button { background: #059669 !important; color: #ffffff !important; border: none !important; border-radius: 10px !important; font-weight: 600 !important; padding: 12px 28px !important; font-size: 15px !important; transition: all 0.15s ease !important; }
+.stButton > button:hover { background: #047857 !important; transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3) !important; }
 
-/* Buttons */
-.stButton > button {
-    background: #059669 !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-    padding: 12px 28px !important;
-    font-size: 15px !important;
-    transition: all 0.15s ease !important;
-}
+.stTextInput input, .stTextArea textarea { background: #1a1a1a !important; border: 2px solid #2a2a2a !important; border-radius: 10px !important; color: #ffffff !important; font-size: 15px !important; padding: 12px 16px !important; }
+.stTextInput input:focus, .stTextArea textarea:focus { border-color: #059669 !important; box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.25) !important; }
+.stTextInput label, .stTextArea label, .stSelectbox label, .stFileUploader label { color: #e2e8f0 !important; font-weight: 600 !important; font-size: 14px !important; margin-bottom: 6px !important; }
 
-.stButton > button:hover {
-    background: #047857 !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3) !important;
-}
+.stSelectbox > div > div { background: #1a1a1a !important; border: 2px solid #2a2a2a !important; border-radius: 10px !important; color: #ffffff !important; }
 
-/* Inputs */
-.stTextInput input, .stTextArea textarea {
-    background: #1a1a1a !important;
-    border: 2px solid #2a2a2a !important;
-    border-radius: 10px !important;
-    color: #ffffff !important;
-    font-size: 15px !important;
-    padding: 12px 16px !important;
-}
+[data-testid="stFileUploader"] { background: #1a1a1a; border: 2px dashed #3a3a3a; border-radius: 12px; padding: 24px; }
+[data-testid="stFileUploader"]:hover { border-color: #059669; background: #0a2018; }
 
-.stTextInput input:focus, .stTextArea textarea:focus {
-    border-color: #059669 !important;
-    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.25) !important;
-}
-
-.stTextInput label, .stTextArea label, .stSelectbox label, .stFileUploader label {
-    color: #e2e8f0 !important;
-    font-weight: 600 !important;
-    font-size: 14px !important;
-    margin-bottom: 6px !important;
-}
-
-/* Select boxes */
-.stSelectbox > div > div {
-    background: #1a1a1a !important;
-    border: 2px solid #2a2a2a !important;
-    border-radius: 10px !important;
-    color: #ffffff !important;
-}
-
-/* File uploader */
-[data-testid="stFileUploader"] {
-    background: #1a1a1a;
-    border: 2px dashed #3a3a3a;
-    border-radius: 12px;
-    padding: 24px;
-}
-
-[data-testid="stFileUploader"]:hover {
-    border-color: #059669;
-    background: #0a2018;
-}
-
-/* Radio buttons */
-.stRadio > div {
-    background: #1a1a1a;
-    border-radius: 10px;
-    padding: 8px 12px;
-    border: 1px solid #2a2a2a;
-}
-
+.stRadio > div { background: #1a1a1a; border-radius: 10px; padding: 8px 12px; border: 1px solid #2a2a2a; }
 .stRadio label { color: #e2e8f0 !important; }
 
-/* Alerts */
 .stSuccess { background: #052e16 !important; border-left: 4px solid #059669 !important; color: #86efac !important; }
 .stInfo { background: #1e3a5f !important; border-left: 4px solid #3b82f6 !important; color: #93c5fd !important; }
 .stWarning { background: #422006 !important; border-left: 4px solid #f59e0b !important; color: #fcd34d !important; }
 .stError { background: #450a0a !important; border-left: 4px solid #ef4444 !important; color: #fca5a5 !important; }
 
-/* Expander */
-.streamlit-expanderHeader {
-    background: #1a1a1a !important;
-    border: 1px solid #2a2a2a !important;
-    border-radius: 10px !important;
-    font-weight: 500 !important;
-    color: #e2e8f0 !important;
-}
+.streamlit-expanderHeader { background: #1a1a1a !important; border: 1px solid #2a2a2a !important; border-radius: 10px !important; font-weight: 500 !important; color: #e2e8f0 !important; }
 
-/* Video */
-video { border-radius: 12px; }
-
-/* Metrics */
 [data-testid="stMetricValue"] { color: #ffffff !important; }
 [data-testid="stMetricLabel"] { color: #94a3b8 !important; }
 
-/* Custom header */
-.app-header {
-    background: #1a1a1a;
-    padding: 20px 28px;
-    border-radius: 16px;
-    margin-bottom: 24px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    border: 1px solid #2a2a2a;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
+.app-header { background: #1a1a1a; padding: 20px 28px; border-radius: 16px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: 1px solid #2a2a2a; display: flex; align-items: center; gap: 16px; }
+.app-title { font-size: 24px; font-weight: 700; color: #ffffff; margin: 0; }
+.app-subtitle { font-size: 14px; color: #94a3b8; margin: 4px 0 0 0; }
+.plivo-badge { background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
 
-.app-title {
-    font-size: 24px;
-    font-weight: 700;
-    color: #ffffff;
-    margin: 0;
-}
+.section-header { font-size: 14px; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #10b981; }
 
-.app-subtitle {
-    font-size: 14px;
-    color: #94a3b8;
-    margin: 4px 0 0 0;
-}
+.app-footer { text-align: center; padding: 24px; color: #64748b; font-size: 13px; border-top: 1px solid #2a2a2a; margin-top: 40px; }
+.app-footer a { color: #10b981; text-decoration: none; font-weight: 500; }
 
-.plivo-badge {
-    background: linear-gradient(135deg, #059669 0%, #047857 100%);
-    color: white;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-}
-
-/* Section headers */
-.section-header {
-    font-size: 14px;
-    font-weight: 700;
-    color: #10b981;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 16px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid #10b981;
-}
-
-/* Results grid */
-.results-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin: 20px 0;
-}
-
-/* Footer */
-.app-footer {
-    text-align: center;
-    padding: 24px;
-    color: #64748b;
-    font-size: 13px;
-    border-top: 1px solid #2a2a2a;
-    margin-top: 40px;
-}
-
-.app-footer a {
-    color: #10b981;
-    text-decoration: none;
-    font-weight: 500;
-}
+video { border-radius: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
 # Constants
 RESULTS_FILE = "evaluation_results.csv"
 KB_DIR = "knowledge_base"
+BATCH_DIR = "batch_videos"
 
 os.makedirs(KB_DIR, exist_ok=True)
+os.makedirs(BATCH_DIR, exist_ok=True)
+
+
+def download_loom_video(loom_url: str, output_path: str) -> bool:
+    """Download video from Loom URL using yt-dlp"""
+    try:
+        # Clean the URL
+        loom_url = loom_url.strip()
+        if not loom_url:
+            return False
+
+        # Use yt-dlp to download
+        cmd = [
+            "yt-dlp",
+            "-f", "best[ext=mp4]/best",
+            "-o", output_path,
+            "--no-playlist",
+            "--quiet",
+            loom_url
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        return result.returncode == 0 and os.path.exists(output_path)
+    except Exception as e:
+        st.error(f"Download error: {str(e)}")
+        return False
 
 
 def extract_text_from_file(uploaded_file) -> str:
@@ -365,16 +195,18 @@ def load_kb_for_assessment(assessment_name: str) -> dict:
     if not os.path.exists(assessment_dir):
         return kb
     for filename in os.listdir(assessment_dir):
-        with open(os.path.join(assessment_dir, filename), 'r') as f:
-            content = f.read()
-        if filename.startswith("jd_"):
-            kb["job_description"] += content + "\n"
-        elif filename.startswith("criteria_"):
-            kb["evaluation_criteria"] += content + "\n"
-        elif filename.startswith("tech_"):
-            kb["technical_requirements"] += content + "\n"
-        else:
-            kb["other"] += content + "\n"
+        filepath = os.path.join(assessment_dir, filename)
+        if os.path.isfile(filepath):
+            with open(filepath, 'r') as f:
+                content = f.read()
+            if filename.startswith("jd_"):
+                kb["job_description"] += content + "\n"
+            elif filename.startswith("criteria_"):
+                kb["evaluation_criteria"] += content + "\n"
+            elif filename.startswith("tech_"):
+                kb["technical_requirements"] += content + "\n"
+            else:
+                kb["other"] += content + "\n"
     return kb
 
 
@@ -449,7 +281,6 @@ IMPORTANT: Return ONLY valid JSON, no other text."""
     try:
         result = json.loads(response.text)
     except:
-        # Try to extract JSON from response
         text = response.text
         start = text.find('{')
         end = text.rfind('}') + 1
@@ -497,13 +328,25 @@ def load_results():
         return list(csv.DictReader(f))
 
 
+def get_rankings(assessment_filter="All"):
+    """Get candidates ranked by score for an assessment"""
+    results = load_results()
+    if assessment_filter != "All":
+        results = [r for r in results if r.get("Assessment") == assessment_filter]
+
+    # Sort by score descending
+    ranked = sorted(results, key=lambda x: int(x.get("Score") or x.get("Overall Score") or 0), reverse=True)
+    return ranked
+
+
 # Initialize session state
 if 'api_key' not in st.session_state:
     st.session_state.api_key = os.getenv('GOOGLE_GEMINI_API_KEY', '')
+if 'batch_results' not in st.session_state:
+    st.session_state.batch_results = []
 
 # ============== SIDEBAR ==============
 with st.sidebar:
-    # Display Plivo logo
     logo_path = os.path.join(os.path.dirname(__file__), "plivo_logo.png")
     if os.path.exists(logo_path):
         st.image(logo_path, width=140)
@@ -548,9 +391,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["📹 New Evaluation", "📚 Knowledge Base", "📊 Results History"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📹 Single Evaluation", "📦 Batch Processing", "🏆 Rankings", "📚 Knowledge Base", "📊 History"])
 
-# ============== TAB 1: NEW EVALUATION ==============
+# ============== TAB 1: SINGLE EVALUATION ==============
 with tab1:
     col1, col2 = st.columns([1, 1], gap="large")
 
@@ -581,177 +424,257 @@ with tab1:
                 st.info("💡 No evaluation criteria uploaded. Add documents in the Knowledge Base tab.")
 
     with col2:
-        st.markdown('<div class="section-header">Video Upload</div>', unsafe_allow_html=True)
-        video = st.file_uploader("Upload Loom Recording", type=["mp4", "webm", "mov"],
-                                help="Download your Loom video and upload it here")
-        if video:
-            st.video(video)
+        st.markdown('<div class="section-header">Video Input</div>', unsafe_allow_html=True)
+
+        input_method = st.radio("Input Method", ["🔗 Loom URL", "📁 Upload File"], horizontal=True)
+
+        video_path = None
+
+        if input_method == "🔗 Loom URL":
+            loom_url = st.text_input("Loom Share URL", placeholder="https://www.loom.com/share/...")
+            if loom_url and st.button("🔍 Preview Video"):
+                # Extract video ID and show embed
+                match = re.search(r'loom\.com/share/([a-zA-Z0-9]+)', loom_url)
+                if match:
+                    video_id = match.group(1)
+                    st.markdown(f'<iframe src="https://www.loom.com/embed/{video_id}" width="100%" height="300" frameborder="0" allowfullscreen></iframe>', unsafe_allow_html=True)
+                else:
+                    st.warning("Invalid Loom URL format")
+        else:
+            video = st.file_uploader("Upload Loom Recording", type=["mp4", "webm", "mov"],
+                                    help="Download your Loom video and upload it here")
+            if video:
+                st.video(video)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Evaluate button
-    if st.button("🚀 Start Evaluation", type="primary", use_container_width=True):
+    if st.button("🚀 Start Evaluation", type="primary", use_container_width=True, key="single_eval"):
         if not st.session_state.api_key:
             st.error("⚠️ Please enter your Gemini API key in the sidebar")
         elif not candidate_name:
             st.error("⚠️ Please enter the candidate's name")
         elif not assessment_name:
             st.error("⚠️ Please enter or select an assessment")
-        elif not video:
+        elif input_method == "🔗 Loom URL" and not loom_url:
+            st.error("⚠️ Please enter a Loom URL")
+        elif input_method == "📁 Upload File" and not video:
             st.error("⚠️ Please upload a video file")
         else:
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                tmp.write(video.read())
-                tmp_path = tmp.name
-
-            kb = load_kb_for_assessment(assessment_name)
-
-            with st.status("🔄 Analyzing video with AI...", expanded=True) as status:
-                st.write("📤 Uploading video to Gemini...")
+            with st.status("🔄 Processing...", expanded=True) as status:
                 try:
+                    if input_method == "🔗 Loom URL":
+                        st.write("📥 Downloading video from Loom...")
+                        tmp_path = tempfile.mktemp(suffix=".mp4")
+                        if not download_loom_video(loom_url, tmp_path):
+                            raise Exception("Failed to download video from Loom. Make sure the URL is correct and the video is public.")
+                    else:
+                        tmp_path = tempfile.mktemp(suffix=".mp4")
+                        with open(tmp_path, 'wb') as f:
+                            f.write(video.read())
+
+                    st.write("📤 Uploading to Gemini for analysis...")
+                    kb = load_kb_for_assessment(assessment_name)
                     result = evaluate_video_with_gemini(tmp_path, candidate_name, assessment_name, kb, notes)
+
                     st.write("💾 Saving results...")
                     save_result(result, candidate_name, assessment_name)
-                    status.update(label="✅ Evaluation Complete!", state="complete")
 
                     os.unlink(tmp_path)
+                    status.update(label="✅ Evaluation Complete!", state="complete")
 
-                    # ============== DISPLAY RESULTS ==============
+                    # Display results
                     st.markdown("---")
                     st.markdown("## 📋 Evaluation Results")
 
-                    # Score cards row
                     c1, c2, c3, c4 = st.columns(4)
-
-                    # Overall score with proper None handling
                     score = result.get('score')
                     if score is None:
                         score = result.get('overall_score')
                     score = int(score) if score is not None else 0
 
                     score_class = "score-green" if score >= 70 else "score-yellow" if score >= 50 else "score-red"
-                    c1.markdown(f'''
-                    <div class="score-card">
-                        <div class="score-value {score_class}">{score}</div>
-                        <div class="score-label">Overall Score</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    c1.markdown(f'<div class="score-card"><div class="score-value {score_class}">{score}</div><div class="score-label">Overall Score</div></div>', unsafe_allow_html=True)
 
                     rec = result.get("recommendation") or "MAYBE"
                     rec_class = "score-green" if rec in ["STRONG_YES", "YES"] else "score-yellow" if rec == "MAYBE" else "score-red"
-                    rec_display = rec.replace("_", " ")
-                    c2.markdown(f'''
-                    <div class="score-card">
-                        <div class="score-value {rec_class}" style="font-size: 24px;">{rec_display}</div>
-                        <div class="score-label">Recommendation</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    c2.markdown(f'<div class="score-card"><div class="score-value {rec_class}" style="font-size: 24px;">{rec.replace("_", " ")}</div><div class="score-label">Recommendation</div></div>', unsafe_allow_html=True)
 
                     demo_working = result.get("demo_working")
                     demo_text = "YES" if demo_working else "NO"
                     demo_class = "score-green" if demo_working else "score-red"
-                    c3.markdown(f'''
-                    <div class="score-card">
-                        <div class="score-value {demo_class}">{demo_text}</div>
-                        <div class="score-label">Demo Working</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    c3.markdown(f'<div class="score-card"><div class="score-value {demo_class}">{demo_text}</div><div class="score-label">Demo Working</div></div>', unsafe_allow_html=True)
 
                     comm_clear = result.get("communication_clear")
                     comm_text = "YES" if comm_clear else "NO"
                     comm_class = "score-green" if comm_clear else "score-red"
-                    c4.markdown(f'''
-                    <div class="score-card">
-                        <div class="score-value {comm_class}">{comm_text}</div>
-                        <div class="score-label">Communication</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    c4.markdown(f'<div class="score-card"><div class="score-value {comm_class}">{comm_text}</div><div class="score-label">Communication</div></div>', unsafe_allow_html=True)
 
                     st.markdown("<br>", unsafe_allow_html=True)
 
-                    # Category scores
                     c1, c2, c3 = st.columns(3)
-                    demo_score = result.get('demo_score')
-                    req_score = result.get('requirements_score')
-                    comm_score = result.get('communication_score')
+                    c1.metric("🎬 Demo Score", f"{result.get('demo_score') or '-'}/100")
+                    c2.metric("📋 Requirements", f"{result.get('requirements_score') or '-'}/100")
+                    c3.metric("🗣️ Communication", f"{result.get('communication_score') or '-'}/100")
 
-                    c1.metric("🎬 Demo Score", f"{demo_score if demo_score is not None else '-'}/100")
-                    c2.metric("📋 Requirements", f"{req_score if req_score is not None else '-'}/100")
-                    c3.metric("🗣️ Communication", f"{comm_score if comm_score is not None else '-'}/100")
-
-                    # Summary
                     st.markdown("### 📝 Summary")
                     st.info(result.get("summary", "No summary available"))
 
-                    # Strengths and improvements
                     c1, c2 = st.columns(2)
                     with c1:
                         st.markdown("### 💪 Strengths")
-                        strengths = result.get("strengths", [])
-                        if strengths:
-                            for s in strengths:
-                                st.markdown(f"✅ {s}")
-                        else:
-                            st.write("No specific strengths noted")
-
+                        for s in result.get("strengths", []):
+                            st.markdown(f"✅ {s}")
                     with c2:
                         st.markdown("### 📈 Areas for Improvement")
-                        improvements = result.get("improvements", [])
-                        if improvements:
-                            for i in improvements:
-                                st.markdown(f"🔸 {i}")
-                        else:
-                            st.write("No specific improvements noted")
-
-                    # Requirements
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        reqs_met = result.get("requirements_met", [])
-                        if reqs_met:
-                            st.markdown("### ✅ Requirements Met")
-                            for r in reqs_met:
-                                st.markdown(f"• {r}")
-
-                    with c2:
-                        reqs_missing = result.get("requirements_missing", [])
-                        if reqs_missing:
-                            st.markdown("### ❌ Requirements Missing")
-                            for r in reqs_missing:
-                                st.markdown(f"• {r}")
-
-                    # Key moments
-                    moments = result.get("key_moments", [])
-                    if moments:
-                        st.markdown("### ⏱️ Key Moments")
-                        for m in moments:
-                            moment_type = m.get("type", "neutral")
-                            icon = "🟢" if moment_type == "positive" else "🔴" if moment_type == "negative" else "🔵"
-                            st.markdown(f"**{m.get('time', '00:00')}** {icon} {m.get('note', '')}")
-
-                    # Detailed feedback
-                    feedback = result.get("detailed_feedback")
-                    if feedback:
-                        st.markdown("### 📄 Detailed Feedback")
-                        st.write(feedback)
+                        for i in result.get("improvements", []):
+                            st.markdown(f"🔸 {i}")
 
                 except Exception as e:
                     status.update(label="❌ Evaluation Failed", state="error")
                     st.error(f"Error: {str(e)}")
-                    os.unlink(tmp_path)
 
-# ============== TAB 2: KNOWLEDGE BASE ==============
+# ============== TAB 2: BATCH PROCESSING ==============
 with tab2:
+    st.markdown('<div class="section-header">Batch Video Processing</div>', unsafe_allow_html=True)
+    st.markdown("Upload multiple videos or provide multiple Loom URLs to evaluate candidates in batch.")
+
+    batch_assessment = st.selectbox("Assessment Type for Batch", get_saved_assessments() or ["No assessments - create one first"])
+
+    batch_method = st.radio("Batch Input Method", ["📁 Upload Multiple Videos", "🔗 Multiple Loom URLs"], horizontal=True)
+
+    if batch_method == "📁 Upload Multiple Videos":
+        batch_videos = st.file_uploader("Upload Videos", type=["mp4", "webm", "mov"], accept_multiple_files=True,
+                                        help="Upload multiple video files. Name them as CandidateName.mp4")
+
+        if batch_videos:
+            st.write(f"**{len(batch_videos)} videos selected:**")
+            for v in batch_videos:
+                candidate = os.path.splitext(v.name)[0]
+                st.write(f"• {candidate}")
+    else:
+        batch_urls = st.text_area("Loom URLs (one per line)",
+                                  placeholder="CandidateName1, https://www.loom.com/share/xxx\nCandidateName2, https://www.loom.com/share/yyy",
+                                  height=150,
+                                  help="Format: CandidateName, LoomURL (one per line)")
+
+    if st.button("🚀 Start Batch Evaluation", type="primary", use_container_width=True, key="batch_eval"):
+        if not st.session_state.api_key:
+            st.error("⚠️ Please enter your Gemini API key")
+        elif not batch_assessment or batch_assessment == "No assessments - create one first":
+            st.error("⚠️ Please select or create an assessment first")
+        else:
+            kb = load_kb_for_assessment(batch_assessment)
+            batch_items = []
+
+            if batch_method == "📁 Upload Multiple Videos" and batch_videos:
+                for v in batch_videos:
+                    candidate = os.path.splitext(v.name)[0]
+                    batch_items.append({"candidate": candidate, "video": v, "type": "file"})
+            elif batch_method == "🔗 Multiple Loom URLs" and batch_urls:
+                for line in batch_urls.strip().split("\n"):
+                    if "," in line:
+                        parts = line.split(",", 1)
+                        candidate = parts[0].strip()
+                        url = parts[1].strip()
+                        batch_items.append({"candidate": candidate, "url": url, "type": "url"})
+
+            if batch_items:
+                progress = st.progress(0)
+                results_container = st.container()
+
+                for idx, item in enumerate(batch_items):
+                    with st.status(f"Processing {item['candidate']}...", expanded=False) as status:
+                        try:
+                            if item["type"] == "file":
+                                tmp_path = tempfile.mktemp(suffix=".mp4")
+                                with open(tmp_path, 'wb') as f:
+                                    f.write(item["video"].read())
+                            else:
+                                tmp_path = tempfile.mktemp(suffix=".mp4")
+                                if not download_loom_video(item["url"], tmp_path):
+                                    raise Exception("Failed to download")
+
+                            result = evaluate_video_with_gemini(tmp_path, item["candidate"], batch_assessment, kb, "")
+                            save_result(result, item["candidate"], batch_assessment)
+
+                            os.unlink(tmp_path)
+
+                            score = result.get("score", 0)
+                            rec = result.get("recommendation", "MAYBE")
+                            status.update(label=f"✅ {item['candidate']}: Score {score}, {rec}", state="complete")
+
+                        except Exception as e:
+                            status.update(label=f"❌ {item['candidate']}: Failed - {str(e)}", state="error")
+
+                    progress.progress((idx + 1) / len(batch_items))
+
+                st.success(f"✅ Batch processing complete! Check the Rankings tab to see results.")
+            else:
+                st.warning("No videos or URLs provided")
+
+# ============== TAB 3: RANKINGS ==============
+with tab3:
+    st.markdown('<div class="section-header">Candidate Rankings</div>', unsafe_allow_html=True)
+
+    assessments = list(set(r.get("Assessment", "") for r in load_results() if r.get("Assessment")))
+    rank_assessment = st.selectbox("Filter by Assessment", ["All"] + assessments, key="rank_filter")
+
+    ranked = get_rankings(rank_assessment)
+
+    if not ranked:
+        st.info("📭 No evaluations yet. Complete some evaluations to see rankings!")
+    else:
+        st.markdown(f"### 🏆 Top Candidates ({len(ranked)} total)")
+
+        for idx, r in enumerate(ranked[:20], 1):  # Show top 20
+            score = r.get('Score') or r.get('Overall Score') or 0
+            rec = r.get('Recommendation', '')
+            candidate = r.get('Candidate', 'Unknown')
+            assessment = r.get('Assessment', '')
+
+            # Determine rank class
+            rank_class = f"rank-{idx}" if idx <= 3 else ""
+
+            # Medal for top 3
+            medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"#{idx}"
+
+            # Recommendation color
+            rec_icon = "🟢" if rec in ["STRONG_YES", "YES"] else "🟡" if rec == "MAYBE" else "🔴"
+
+            st.markdown(f"""
+            <div class="rank-card {rank_class}">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <div style="font-size: 28px; min-width: 50px;">{medal}</div>
+                    <div style="flex: 1;">
+                        <div style="font-size: 18px; font-weight: 600; color: #ffffff;">{candidate}</div>
+                        <div style="font-size: 13px; color: #94a3b8;">{assessment}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 32px; font-weight: 700; color: {'#10b981' if int(score) >= 70 else '#f59e0b' if int(score) >= 50 else '#ef4444'};">{score}</div>
+                        <div style="font-size: 13px; color: #94a3b8;">{rec_icon} {rec.replace('_', ' ')}</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            with st.expander(f"View Details - {candidate}"):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Demo", r.get('Demo') or '-')
+                c2.metric("Requirements", r.get('Requirements') or '-')
+                c3.metric("Communication", r.get('Communication') or '-')
+                st.markdown(f"**Summary:** {r.get('Summary', 'N/A')}")
+                if r.get('Strengths'):
+                    st.markdown(f"**Strengths:** {r.get('Strengths').replace('|', ', ')}")
+
+# ============== TAB 4: KNOWLEDGE BASE ==============
+with tab4:
     st.markdown('<div class="section-header">Knowledge Base Management</div>', unsafe_allow_html=True)
     st.markdown("Upload evaluation criteria, job descriptions, and requirements for each assessment type.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    kb_name = st.text_input("Assessment Name", key="kb_assessment",
-                           placeholder="e.g., Backend Engineer Q1 2024")
+    kb_name = st.text_input("Assessment Name", key="kb_assessment", placeholder="e.g., Backend Engineer Q1 2024")
 
     if kb_name:
-        st.markdown("<br>", unsafe_allow_html=True)
-
         c1, c2 = st.columns(2, gap="large")
 
         with c1:
@@ -785,15 +708,14 @@ with tab2:
                 st.success("✅ Document saved!")
 
         st.markdown("---")
-
         saved_assessments = get_saved_assessments()
         if saved_assessments:
             st.markdown("### 📁 Existing Assessments")
             for a in saved_assessments:
                 st.markdown(f"• **{a}**")
 
-# ============== TAB 3: RESULTS ==============
-with tab3:
+# ============== TAB 5: HISTORY ==============
+with tab5:
     results = load_results()
 
     if not results:
@@ -801,26 +723,20 @@ with tab3:
     else:
         st.markdown('<div class="section-header">Evaluation History</div>', unsafe_allow_html=True)
 
-        # Filters
         c1, c2, c3 = st.columns([2, 2, 1])
         assessments = list(set(r.get("Assessment", "") for r in results if r.get("Assessment")))
-        filter_assessment = c1.selectbox("Filter by Assessment", ["All"] + assessments)
-        filter_rec = c2.selectbox("Filter by Recommendation", ["All", "STRONG_YES", "YES", "MAYBE", "NO"])
+        filter_assessment = c1.selectbox("Filter by Assessment", ["All"] + assessments, key="hist_assess")
+        filter_rec = c2.selectbox("Filter by Recommendation", ["All", "STRONG_YES", "YES", "MAYBE", "NO"], key="hist_rec")
 
-        # Apply filters
         filtered = [r for r in results
                    if (filter_assessment == "All" or r.get("Assessment") == filter_assessment)
                    and (filter_rec == "All" or r.get("Recommendation") == filter_rec)]
 
         c3.metric("Results", len(filtered))
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Display results
         for r in reversed(filtered):
             rec = r.get('Recommendation', '')
             icon = "🟢" if rec in ["STRONG_YES", "YES"] else "🟡" if rec == "MAYBE" else "🔴"
-            # Handle both "Score" and "Overall Score" column names
             score = r.get('Score') or r.get('Overall Score') or '-'
 
             with st.expander(f"{icon} **{r.get('Candidate', 'Unknown')}** — {r.get('Assessment', '')} — Score: {score}"):
@@ -828,9 +744,7 @@ with tab3:
                 c1.markdown(f"**📅 Date:** {r.get('Timestamp', '')[:10]}")
                 c2.markdown(f"**🎯 Recommendation:** {rec}")
 
-                # Show sub-scores
                 demo_s = r.get('Demo') or r.get('Demo Score') or '-'
-                req_s = r.get('Requirements') or r.get('Requirements Score') or '-'
                 comm_s = r.get('Communication') or r.get('Communication Score') or '-'
                 c3.markdown(f"**🎬 Demo:** {demo_s}")
                 c4.markdown(f"**🗣️ Comm:** {comm_s}")
