@@ -1,6 +1,6 @@
 """
 Loom Evaluation System - Plivo
-With Loom URL support, Google Drive Batch Processing & Ranking
+With Loom URL support, Batch Processing, Ranking & Reports
 """
 
 import streamlit as st
@@ -16,8 +16,7 @@ import PyPDF2
 import io
 import subprocess
 import re
-import gdown
-import glob
+from fpdf import FPDF
 
 # Page config - must be first
 st.set_page_config(
@@ -496,6 +495,172 @@ def get_rankings(assessment_filter="All"):
     return ranked
 
 
+def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
+    """Generate PDF report for an assessment with all candidates"""
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    # Title
+    pdf.set_font('Helvetica', 'B', 20)
+    pdf.cell(0, 15, f'Assessment Report: {assessment_name}', ln=True, align='C')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 8, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', ln=True, align='C')
+    pdf.cell(0, 8, f'Total Candidates: {len(results)}', ln=True, align='C')
+    pdf.ln(10)
+
+    # Summary stats
+    if results:
+        scores = [int(r.get("Score") or r.get("Overall Score") or 0) for r in results]
+        avg_score = sum(scores) / len(scores) if scores else 0
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.cell(0, 8, f'Average Score: {avg_score:.1f}', ln=True)
+        pdf.ln(5)
+
+    # Rankings table
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(15, 10, 'Rank', border=1)
+    pdf.cell(50, 10, 'Candidate', border=1)
+    pdf.cell(25, 10, 'Score', border=1)
+    pdf.cell(35, 10, 'Recommendation', border=1)
+    pdf.cell(60, 10, 'Summary', border=1)
+    pdf.ln()
+
+    pdf.set_font('Helvetica', '', 9)
+    for idx, r in enumerate(results, 1):
+        score = r.get("Score") or r.get("Overall Score") or "-"
+        candidate = (r.get("Candidate", "Unknown")[:20])
+        rec = r.get("Recommendation", "-")
+        summary = (r.get("Summary", "")[:50] + "...") if r.get("Summary") else "-"
+
+        pdf.cell(15, 8, str(idx), border=1)
+        pdf.cell(50, 8, candidate, border=1)
+        pdf.cell(25, 8, str(score), border=1)
+        pdf.cell(35, 8, rec, border=1)
+        pdf.cell(60, 8, summary, border=1)
+        pdf.ln()
+
+    # Detailed results for each candidate
+    pdf.add_page()
+    pdf.set_font('Helvetica', 'B', 14)
+    pdf.cell(0, 10, 'Detailed Candidate Reports', ln=True)
+    pdf.ln(5)
+
+    for idx, r in enumerate(results, 1):
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.cell(0, 8, f'{idx}. {r.get("Candidate", "Unknown")}', ln=True)
+        pdf.set_font('Helvetica', '', 10)
+        pdf.cell(0, 6, f'Score: {r.get("Score") or r.get("Overall Score") or "-"} | Recommendation: {r.get("Recommendation", "-")}', ln=True)
+        pdf.cell(0, 6, f'Demo: {r.get("Demo", "-")} | Requirements: {r.get("Requirements", "-")} | Communication: {r.get("Communication", "-")}', ln=True)
+
+        pdf.set_font('Helvetica', 'I', 9)
+        summary = r.get("Summary", "No summary available")
+        pdf.multi_cell(0, 5, f'Summary: {summary}')
+
+        if r.get("Strengths"):
+            pdf.set_font('Helvetica', '', 9)
+            pdf.multi_cell(0, 5, f'Strengths: {r.get("Strengths").replace("|", ", ")}')
+
+        if r.get("Improvements"):
+            pdf.multi_cell(0, 5, f'Improvements: {r.get("Improvements").replace("|", ", ")}')
+
+        pdf.ln(5)
+
+    return pdf.output()
+
+
+def generate_candidate_pdf(result: dict) -> bytes:
+    """Generate PDF report for a single candidate"""
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    # Header
+    pdf.set_font('Helvetica', 'B', 20)
+    pdf.cell(0, 15, 'Candidate Evaluation Report', ln=True, align='C')
+    pdf.ln(5)
+
+    # Candidate info
+    pdf.set_font('Helvetica', 'B', 14)
+    pdf.cell(0, 10, f'Candidate: {result.get("Candidate", "Unknown")}', ln=True)
+    pdf.set_font('Helvetica', '', 11)
+    pdf.cell(0, 7, f'Assessment: {result.get("Assessment", "-")}', ln=True)
+    pdf.cell(0, 7, f'Date: {result.get("Timestamp", "")[:10]}', ln=True)
+    pdf.ln(10)
+
+    # Scores box
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(0, 8, 'SCORES', ln=True)
+    pdf.set_font('Helvetica', '', 11)
+    score = result.get("Score") or result.get("Overall Score") or "-"
+    pdf.cell(95, 8, f'Overall Score: {score}', border=1)
+    pdf.cell(95, 8, f'Recommendation: {result.get("Recommendation", "-")}', border=1, ln=True)
+    pdf.cell(63, 8, f'Demo: {result.get("Demo", "-")}', border=1)
+    pdf.cell(63, 8, f'Requirements: {result.get("Requirements", "-")}', border=1)
+    pdf.cell(64, 8, f'Communication: {result.get("Communication", "-")}', border=1, ln=True)
+    pdf.ln(10)
+
+    # Summary
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(0, 8, 'SUMMARY', ln=True)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.multi_cell(0, 6, result.get("Summary", "No summary available"))
+    pdf.ln(5)
+
+    # Strengths
+    if result.get("Strengths"):
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.cell(0, 8, 'STRENGTHS', ln=True)
+        pdf.set_font('Helvetica', '', 10)
+        for s in result.get("Strengths", "").split("|"):
+            if s.strip():
+                pdf.cell(0, 6, f'  - {s.strip()}', ln=True)
+        pdf.ln(5)
+
+    # Improvements
+    if result.get("Improvements"):
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.cell(0, 8, 'AREAS FOR IMPROVEMENT', ln=True)
+        pdf.set_font('Helvetica', '', 10)
+        for i in result.get("Improvements", "").split("|"):
+            if i.strip():
+                pdf.cell(0, 6, f'  - {i.strip()}', ln=True)
+        pdf.ln(5)
+
+    # Detailed feedback
+    if result.get("Feedback"):
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.cell(0, 8, 'DETAILED FEEDBACK', ln=True)
+        pdf.set_font('Helvetica', '', 10)
+        pdf.multi_cell(0, 6, result.get("Feedback", ""))
+
+    return pdf.output()
+
+
+def generate_assessment_csv(results: list) -> str:
+    """Generate CSV for assessment results"""
+    output = io.StringIO()
+    if results:
+        fieldnames = ["Rank", "Candidate", "Score", "Demo", "Requirements", "Communication",
+                     "Recommendation", "Summary", "Strengths", "Improvements"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for idx, r in enumerate(results, 1):
+            writer.writerow({
+                "Rank": idx,
+                "Candidate": r.get("Candidate", ""),
+                "Score": r.get("Score") or r.get("Overall Score") or "",
+                "Demo": r.get("Demo", ""),
+                "Requirements": r.get("Requirements", ""),
+                "Communication": r.get("Communication", ""),
+                "Recommendation": r.get("Recommendation", ""),
+                "Summary": r.get("Summary", ""),
+                "Strengths": r.get("Strengths", "").replace("|", ", "),
+                "Improvements": r.get("Improvements", "").replace("|", ", ")
+            })
+    return output.getvalue()
+
+
 # Initialize session state
 if 'api_key' not in st.session_state:
     st.session_state.api_key = os.getenv('GOOGLE_GEMINI_API_KEY', '')
@@ -704,84 +869,47 @@ with tab1:
 # ============== TAB 2: BATCH PROCESSING ==============
 with tab2:
     st.markdown('<div class="section-header">Batch Video Processing</div>', unsafe_allow_html=True)
-    st.markdown("Process multiple candidate videos at once from various sources.")
+    st.markdown("Process multiple candidate videos at once. Name files as `CandidateName.mp4`")
 
     batch_assessment = st.selectbox("Assessment Type for Batch", get_saved_assessments() or ["No assessments - create one first"])
 
-    batch_method = st.radio("Batch Input Method",
-                           ["📁 Upload Videos", "📂 Google Drive Folder"],
-                           horizontal=True)
-
-    batch_videos = None
-    drive_folder_url = None
-
-    if batch_method == "📁 Upload Videos":
-        batch_videos = st.file_uploader("Upload Videos", type=["mp4", "webm", "mov"], accept_multiple_files=True,
-                                        help="Upload multiple video files. Name them as CandidateName.mp4")
-        if batch_videos:
-            st.write(f"**{len(batch_videos)} videos selected:**")
-            for v in batch_videos:
-                candidate = os.path.splitext(v.name)[0]
-                st.write(f"• {candidate}")
-
-    else:  # Google Drive Folder
-        st.info("💡 **How to use Google Drive:**\n1. Create a folder in Google Drive\n2. Upload all candidate videos (name files as CandidateName.mp4)\n3. Right-click folder → Share → Change to 'Anyone with the link'\n4. Copy the folder link and paste below")
-
-        drive_folder_url = st.text_input("Google Drive Folder URL",
-                                         placeholder="https://drive.google.com/drive/folders/xxx",
-                                         help="Paste the shareable link to your Google Drive folder containing videos")
+    batch_videos = st.file_uploader("Upload Videos", type=["mp4", "webm", "mov"], accept_multiple_files=True,
+                                    help="Upload multiple video files. Name them as CandidateName.mp4")
+    if batch_videos:
+        st.write(f"**{len(batch_videos)} videos selected:**")
+        for v in batch_videos:
+            candidate = os.path.splitext(v.name)[0]
+            st.write(f"• {candidate}")
 
     if st.button("🚀 Start Batch Evaluation", type="primary", use_container_width=True, key="batch_eval"):
         if not st.session_state.api_key:
             st.error("⚠️ Please enter your Gemini API key")
         elif not batch_assessment or batch_assessment == "No assessments - create one first":
             st.error("⚠️ Please select or create an assessment first")
+        elif not batch_videos:
+            st.error("⚠️ Please upload video files")
         else:
             kb = load_kb_for_assessment(batch_assessment)
             batch_items = []
 
-            if batch_method == "📁 Upload Videos" and batch_videos:
-                for v in batch_videos:
-                    candidate = os.path.splitext(v.name)[0]
-                    batch_items.append({"candidate": candidate, "video": v, "type": "file"})
-
-            elif batch_method == "📂 Google Drive Folder" and drive_folder_url:
-                with st.status("📥 Downloading videos from Google Drive...", expanded=True) as dl_status:
-                    st.write("Connecting to Google Drive...")
-                    drive_output_dir = tempfile.mkdtemp(prefix="drive_videos_")
-
-                    videos = download_drive_folder(drive_folder_url, drive_output_dir)
-
-                    if videos:
-                        st.write(f"✅ Found {len(videos)} videos")
-                        for video_path in videos:
-                            candidate = os.path.splitext(os.path.basename(video_path))[0]
-                            batch_items.append({"candidate": candidate, "path": video_path, "type": "drive"})
-                        dl_status.update(label=f"✅ Downloaded {len(videos)} videos", state="complete")
-                    else:
-                        dl_status.update(label="❌ No videos found or download failed", state="error")
-                        st.error("Could not download videos. Make sure the folder is shared publicly ('Anyone with the link').")
+            for v in batch_videos:
+                candidate = os.path.splitext(v.name)[0]
+                batch_items.append({"candidate": candidate, "video": v, "type": "file"})
 
             if batch_items:
                 progress = st.progress(0)
-                results_container = st.container()
 
                 for idx, item in enumerate(batch_items):
                     with st.status(f"Processing {item['candidate']}...", expanded=False) as status:
                         try:
-                            if item["type"] == "file":
-                                tmp_path = tempfile.mktemp(suffix=".mp4")
-                                with open(tmp_path, 'wb') as f:
-                                    f.write(item["video"].read())
-                                delete_after = True
-                            elif item["type"] == "drive":
-                                tmp_path = item["path"]  # Already downloaded
-                                delete_after = True
+                            tmp_path = tempfile.mktemp(suffix=".mp4")
+                            with open(tmp_path, 'wb') as f:
+                                f.write(item["video"].read())
 
                             result = evaluate_video_with_gemini(tmp_path, item["candidate"], batch_assessment, kb, "")
                             save_result(result, item["candidate"], batch_assessment)
 
-                            if delete_after and os.path.exists(tmp_path):
+                            if os.path.exists(tmp_path):
                                 os.unlink(tmp_path)
 
                             score = result.get("score", 0)
@@ -794,8 +922,6 @@ with tab2:
                     progress.progress((idx + 1) / len(batch_items))
 
                 st.success(f"✅ Batch processing complete! Check the Rankings tab to see results.")
-            else:
-                st.warning("No videos or URLs provided")
 
 # ============== TAB 3: RANKINGS ==============
 with tab3:
@@ -809,7 +935,32 @@ with tab3:
     if not ranked:
         st.info("📭 No evaluations yet. Complete some evaluations to see rankings!")
     else:
+        # Export buttons
         st.markdown(f"### 🏆 Top Candidates ({len(ranked)} total)")
+
+        c1, c2, c3 = st.columns([2, 1, 1])
+        with c2:
+            # PDF Export
+            pdf_data = generate_assessment_pdf(rank_assessment, ranked)
+            st.download_button(
+                "📄 Export PDF",
+                pdf_data,
+                f"assessment_report_{rank_assessment.replace(' ', '_')}.pdf",
+                "application/pdf",
+                use_container_width=True
+            )
+        with c3:
+            # CSV Export
+            csv_data = generate_assessment_csv(ranked)
+            st.download_button(
+                "📊 Export CSV",
+                csv_data,
+                f"assessment_results_{rank_assessment.replace(' ', '_')}.csv",
+                "text/csv",
+                use_container_width=True
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
 
         for idx, r in enumerate(ranked[:20], 1):  # Show top 20
             score = r.get('Score') or r.get('Overall Score') or 0
@@ -843,10 +994,19 @@ with tab3:
             """, unsafe_allow_html=True)
 
             with st.expander(f"View Details - {candidate}"):
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
                 c1.metric("Demo", r.get('Demo') or '-')
                 c2.metric("Requirements", r.get('Requirements') or '-')
                 c3.metric("Communication", r.get('Communication') or '-')
+                with c4:
+                    candidate_pdf = generate_candidate_pdf(r)
+                    st.download_button(
+                        "📄 PDF",
+                        candidate_pdf,
+                        f"{candidate.replace(' ', '_')}_report.pdf",
+                        "application/pdf",
+                        key=f"pdf_{idx}_{candidate}"
+                    )
                 st.markdown(f"**Summary:** {r.get('Summary', 'N/A')}")
                 if r.get('Strengths'):
                     st.markdown(f"**Strengths:** {r.get('Strengths').replace('|', ', ')}")
