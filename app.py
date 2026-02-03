@@ -1,6 +1,6 @@
 """
 Loom Evaluation System - Plivo
-With Loom URL support, Batch Processing & Ranking
+With Loom URL support, Google Drive Batch Processing & Ranking
 """
 
 import streamlit as st
@@ -16,6 +16,8 @@ import PyPDF2
 import io
 import subprocess
 import re
+import gdown
+import glob
 
 # Page config - must be first
 st.set_page_config(
@@ -159,6 +161,61 @@ def download_loom_video(loom_url: str, output_path: str) -> bool:
         return result.returncode == 0 and os.path.exists(output_path)
     except Exception as e:
         st.error(f"Download error: {str(e)}")
+        return False
+
+
+def download_drive_folder(folder_url: str, output_dir: str) -> list:
+    """Download all videos from a Google Drive folder"""
+    try:
+        # Extract folder ID from URL
+        # Formats:
+        # https://drive.google.com/drive/folders/FOLDER_ID
+        # https://drive.google.com/drive/u/0/folders/FOLDER_ID
+        match = re.search(r'folders/([a-zA-Z0-9_-]+)', folder_url)
+        if not match:
+            return []
+
+        folder_id = match.group(1)
+
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Download entire folder using gdown
+        gdown.download_folder(
+            id=folder_id,
+            output=output_dir,
+            quiet=False,
+            use_cookies=False
+        )
+
+        # Find all video files downloaded
+        video_extensions = ['*.mp4', '*.webm', '*.mov', '*.avi', '*.mkv']
+        videos = []
+        for ext in video_extensions:
+            videos.extend(glob.glob(os.path.join(output_dir, '**', ext), recursive=True))
+
+        return videos
+    except Exception as e:
+        st.error(f"Drive download error: {str(e)}")
+        return []
+
+
+def download_single_drive_file(file_url: str, output_path: str) -> bool:
+    """Download a single file from Google Drive"""
+    try:
+        # Extract file ID from URL
+        # Formats:
+        # https://drive.google.com/file/d/FILE_ID/view
+        # https://drive.google.com/open?id=FILE_ID
+        match = re.search(r'(?:file/d/|id=)([a-zA-Z0-9_-]+)', file_url)
+        if not match:
+            return False
+
+        file_id = match.group(1)
+        gdown.download(id=file_id, output=output_path, quiet=True)
+        return os.path.exists(output_path)
+    except Exception as e:
+        st.error(f"Drive download error: {str(e)}")
         return False
 
 
@@ -537,26 +594,39 @@ with tab1:
 # ============== TAB 2: BATCH PROCESSING ==============
 with tab2:
     st.markdown('<div class="section-header">Batch Video Processing</div>', unsafe_allow_html=True)
-    st.markdown("Upload multiple videos or provide multiple Loom URLs to evaluate candidates in batch.")
+    st.markdown("Process multiple candidate videos at once from various sources.")
 
     batch_assessment = st.selectbox("Assessment Type for Batch", get_saved_assessments() or ["No assessments - create one first"])
 
-    batch_method = st.radio("Batch Input Method", ["📁 Upload Multiple Videos", "🔗 Multiple Loom URLs"], horizontal=True)
+    batch_method = st.radio("Batch Input Method",
+                           ["📁 Upload Videos", "🔗 Loom URLs", "📂 Google Drive Folder"],
+                           horizontal=True)
 
-    if batch_method == "📁 Upload Multiple Videos":
+    batch_videos = None
+    batch_urls = None
+    drive_folder_url = None
+
+    if batch_method == "📁 Upload Videos":
         batch_videos = st.file_uploader("Upload Videos", type=["mp4", "webm", "mov"], accept_multiple_files=True,
                                         help="Upload multiple video files. Name them as CandidateName.mp4")
-
         if batch_videos:
             st.write(f"**{len(batch_videos)} videos selected:**")
             for v in batch_videos:
                 candidate = os.path.splitext(v.name)[0]
                 st.write(f"• {candidate}")
-    else:
+
+    elif batch_method == "🔗 Loom URLs":
         batch_urls = st.text_area("Loom URLs (one per line)",
                                   placeholder="CandidateName1, https://www.loom.com/share/xxx\nCandidateName2, https://www.loom.com/share/yyy",
                                   height=150,
                                   help="Format: CandidateName, LoomURL (one per line)")
+
+    else:  # Google Drive Folder
+        st.info("💡 **How to use Google Drive:**\n1. Create a folder in Google Drive\n2. Upload all candidate videos (name files as CandidateName.mp4)\n3. Right-click folder → Share → Change to 'Anyone with the link'\n4. Copy the folder link and paste below")
+
+        drive_folder_url = st.text_input("Google Drive Folder URL",
+                                         placeholder="https://drive.google.com/drive/folders/xxx",
+                                         help="Paste the shareable link to your Google Drive folder containing videos")
 
     if st.button("🚀 Start Batch Evaluation", type="primary", use_container_width=True, key="batch_eval"):
         if not st.session_state.api_key:
@@ -567,17 +637,35 @@ with tab2:
             kb = load_kb_for_assessment(batch_assessment)
             batch_items = []
 
-            if batch_method == "📁 Upload Multiple Videos" and batch_videos:
+            if batch_method == "📁 Upload Videos" and batch_videos:
                 for v in batch_videos:
                     candidate = os.path.splitext(v.name)[0]
                     batch_items.append({"candidate": candidate, "video": v, "type": "file"})
-            elif batch_method == "🔗 Multiple Loom URLs" and batch_urls:
+
+            elif batch_method == "🔗 Loom URLs" and batch_urls:
                 for line in batch_urls.strip().split("\n"):
                     if "," in line:
                         parts = line.split(",", 1)
                         candidate = parts[0].strip()
                         url = parts[1].strip()
                         batch_items.append({"candidate": candidate, "url": url, "type": "url"})
+
+            elif batch_method == "📂 Google Drive Folder" and drive_folder_url:
+                with st.status("📥 Downloading videos from Google Drive...", expanded=True) as dl_status:
+                    st.write("Connecting to Google Drive...")
+                    drive_output_dir = tempfile.mkdtemp(prefix="drive_videos_")
+
+                    videos = download_drive_folder(drive_folder_url, drive_output_dir)
+
+                    if videos:
+                        st.write(f"✅ Found {len(videos)} videos")
+                        for video_path in videos:
+                            candidate = os.path.splitext(os.path.basename(video_path))[0]
+                            batch_items.append({"candidate": candidate, "path": video_path, "type": "drive"})
+                        dl_status.update(label=f"✅ Downloaded {len(videos)} videos", state="complete")
+                    else:
+                        dl_status.update(label="❌ No videos found or download failed", state="error")
+                        st.error("Could not download videos. Make sure the folder is shared publicly ('Anyone with the link').")
 
             if batch_items:
                 progress = st.progress(0)
@@ -590,15 +678,21 @@ with tab2:
                                 tmp_path = tempfile.mktemp(suffix=".mp4")
                                 with open(tmp_path, 'wb') as f:
                                     f.write(item["video"].read())
-                            else:
+                                delete_after = True
+                            elif item["type"] == "drive":
+                                tmp_path = item["path"]  # Already downloaded
+                                delete_after = True
+                            else:  # Loom URL
                                 tmp_path = tempfile.mktemp(suffix=".mp4")
                                 if not download_loom_video(item["url"], tmp_path):
-                                    raise Exception("Failed to download")
+                                    raise Exception("Failed to download from Loom")
+                                delete_after = True
 
                             result = evaluate_video_with_gemini(tmp_path, item["candidate"], batch_assessment, kb, "")
                             save_result(result, item["candidate"], batch_assessment)
 
-                            os.unlink(tmp_path)
+                            if delete_after and os.path.exists(tmp_path):
+                                os.unlink(tmp_path)
 
                             score = result.get("score", 0)
                             rec = result.get("recommendation", "MAYBE")
