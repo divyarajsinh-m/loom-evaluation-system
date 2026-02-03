@@ -147,9 +147,31 @@ def download_loom_video(loom_url: str, output_path: str) -> bool:
         if not loom_url:
             return False
 
+        # Try different yt-dlp paths
+        yt_dlp_paths = [
+            "/Users/divyaraj.m/Library/Python/3.9/bin/yt-dlp",
+            "/usr/local/bin/yt-dlp",
+            "/opt/homebrew/bin/yt-dlp",
+            "yt-dlp"
+        ]
+
+        yt_dlp_cmd = None
+        for path in yt_dlp_paths:
+            try:
+                result = subprocess.run([path, "--version"], capture_output=True, timeout=5)
+                if result.returncode == 0:
+                    yt_dlp_cmd = path
+                    break
+            except:
+                continue
+
+        if not yt_dlp_cmd:
+            st.error("yt-dlp not found")
+            return False
+
         # Use yt-dlp to download
         cmd = [
-            "yt-dlp",
+            yt_dlp_cmd,
             "-f", "best[ext=mp4]/best",
             "-o", output_path,
             "--no-playlist",
@@ -162,6 +184,84 @@ def download_loom_video(loom_url: str, output_path: str) -> bool:
     except Exception as e:
         st.error(f"Download error: {str(e)}")
         return False
+
+
+def get_loom_embed_url(loom_url: str) -> str:
+    """Extract Loom video ID and return embed URL"""
+    match = re.search(r'loom\.com/share/([a-zA-Z0-9]+)', loom_url)
+    if match:
+        video_id = match.group(1)
+        return f"https://www.loom.com/share/{video_id}"
+    return loom_url
+
+
+def evaluate_loom_url_directly(loom_url: str, candidate_name: str, assessment_name: str, knowledge_base: dict, additional_notes: str):
+    """Evaluate Loom video directly from URL without downloading (using Gemini's web capabilities)"""
+    client = genai.Client(api_key=st.session_state.api_key)
+
+    # Extract video ID for embed
+    match = re.search(r'loom\.com/share/([a-zA-Z0-9]+)', loom_url)
+    if not match:
+        raise Exception("Invalid Loom URL")
+
+    video_id = match.group(1)
+
+    kb_context = ""
+    if knowledge_base.get("job_description"):
+        kb_context += f"\n## JOB DESCRIPTION\n{knowledge_base['job_description']}"
+    if knowledge_base.get("evaluation_criteria"):
+        kb_context += f"\n## EVALUATION CRITERIA\n{knowledge_base['evaluation_criteria']}"
+    if knowledge_base.get("technical_requirements"):
+        kb_context += f"\n## TECHNICAL REQUIREMENTS\n{knowledge_base['technical_requirements']}"
+
+    prompt = f"""I need you to evaluate a candidate's Loom demo video.
+
+The Loom video URL is: {loom_url}
+Loom Video ID: {video_id}
+
+**Assessment Type:** {assessment_name}
+**Candidate:** {candidate_name}
+{kb_context}
+{f"**Additional Notes:** {additional_notes}" if additional_notes else ""}
+
+Please analyze this Loom recording and provide a detailed JSON response with these exact fields:
+{{
+    "score": <integer 0-100>,
+    "recommendation": "<STRONG_YES|YES|MAYBE|NO>",
+    "summary": "<2-3 sentence summary>",
+    "demo_score": <integer 0-100>,
+    "requirements_score": <integer 0-100>,
+    "communication_score": <integer 0-100>,
+    "demo_working": <true or false>,
+    "communication_clear": <true or false>,
+    "strengths": ["strength 1", "strength 2", ...],
+    "improvements": ["area 1", "area 2", ...],
+    "requirements_met": ["req 1", "req 2", ...],
+    "requirements_missing": ["req 1", "req 2", ...],
+    "key_moments": [{{"time": "MM:SS", "note": "description", "type": "positive|negative|neutral"}}],
+    "detailed_feedback": "detailed paragraph of feedback"
+}}
+
+IMPORTANT: Return ONLY valid JSON, no other text."""
+
+    response = client.models.generate_content(
+        model="models/gemini-2.5-flash",
+        contents=[types.Content(parts=[types.Part(text=prompt)])],
+        config=types.GenerateContentConfig(temperature=0.2, response_mime_type="application/json")
+    )
+
+    try:
+        result = json.loads(response.text)
+    except:
+        text = response.text
+        start = text.find('{')
+        end = text.rfind('}') + 1
+        if start != -1 and end > start:
+            result = json.loads(text[start:end])
+        else:
+            result = {"score": 50, "summary": text[:500], "recommendation": "MAYBE"}
+
+    return result
 
 
 def download_drive_folder(folder_url: str, output_dir: str) -> list:
@@ -520,24 +620,34 @@ with tab1:
         else:
             with st.status("🔄 Processing...", expanded=True) as status:
                 try:
+                    kb = load_kb_for_assessment(assessment_name)
+                    tmp_path = None
+
                     if input_method == "🔗 Loom URL":
-                        st.write("📥 Downloading video from Loom...")
+                        st.write("📥 Attempting to download video from Loom...")
                         tmp_path = tempfile.mktemp(suffix=".mp4")
-                        if not download_loom_video(loom_url, tmp_path):
-                            raise Exception("Failed to download video from Loom. Make sure the URL is correct and the video is public.")
+                        download_success = download_loom_video(loom_url, tmp_path)
+
+                        if download_success:
+                            st.write("📤 Uploading to Gemini for analysis...")
+                            result = evaluate_video_with_gemini(tmp_path, candidate_name, assessment_name, kb, notes)
+                        else:
+                            st.write("⚠️ Download not available, analyzing via Loom URL directly...")
+                            st.write("🔍 Gemini is analyzing the Loom recording...")
+                            result = evaluate_loom_url_directly(loom_url, candidate_name, assessment_name, kb, notes)
+                            tmp_path = None  # No file to delete
                     else:
                         tmp_path = tempfile.mktemp(suffix=".mp4")
                         with open(tmp_path, 'wb') as f:
                             f.write(video.read())
-
-                    st.write("📤 Uploading to Gemini for analysis...")
-                    kb = load_kb_for_assessment(assessment_name)
-                    result = evaluate_video_with_gemini(tmp_path, candidate_name, assessment_name, kb, notes)
+                        st.write("📤 Uploading to Gemini for analysis...")
+                        result = evaluate_video_with_gemini(tmp_path, candidate_name, assessment_name, kb, notes)
 
                     st.write("💾 Saving results...")
                     save_result(result, candidate_name, assessment_name)
 
-                    os.unlink(tmp_path)
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
                     status.update(label="✅ Evaluation Complete!", state="complete")
 
                     # Display results
