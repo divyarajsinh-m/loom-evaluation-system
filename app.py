@@ -564,9 +564,9 @@ def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
         rec_val = r.get("Recommendation", "-")
         pdf.cell(0, 5, f'Score: {score_val} | Recommendation: {rec_val}', ln=True)
 
-        demo_val = r.get("Demo", "-")
-        req_val = r.get("Requirements", "-")
-        comm_val = r.get("Communication", "-")
+        demo_val = r.get("Demo Score") or r.get("Demo") or "-"
+        req_val = r.get("Requirements Score") or r.get("Requirements") or "-"
+        comm_val = r.get("Communication Score") or r.get("Communication") or "-"
         pdf.cell(0, 5, f'Demo: {demo_val} | Requirements: {req_val} | Communication: {comm_val}', ln=True)
 
         # Summary
@@ -624,9 +624,9 @@ def generate_candidate_pdf(result: dict) -> bytes:
     pdf.cell(95, 7, f'Overall Score: {score}', border=1)
     pdf.cell(95, 7, f'Recommendation: {rec}', border=1, ln=True)
 
-    demo = result.get("Demo", "-")
-    req = result.get("Requirements", "-")
-    comm = result.get("Communication", "-")
+    demo = result.get("Demo Score") or result.get("Demo") or "-"
+    req = result.get("Requirements Score") or result.get("Requirements") or "-"
+    comm = result.get("Communication Score") or result.get("Communication") or "-"
     pdf.cell(63, 7, f'Demo: {demo}', border=1)
     pdf.cell(63, 7, f'Requirements: {req}', border=1)
     pdf.cell(64, 7, f'Communication: {comm}', border=1, ln=True)
@@ -663,7 +663,7 @@ def generate_candidate_pdf(result: dict) -> bytes:
         pdf.ln(5)
 
     # Detailed feedback
-    feedback = result.get("Feedback", "")
+    feedback = result.get("Detailed Feedback") or result.get("Feedback") or ""
     if feedback:
         pdf.set_font('Helvetica', 'B', 11)
         pdf.cell(0, 7, 'DETAILED FEEDBACK', ln=True)
@@ -678,22 +678,23 @@ def generate_assessment_csv(results: list) -> str:
     """Generate CSV for assessment results"""
     output = io.StringIO()
     if results:
-        fieldnames = ["Rank", "Candidate", "Score", "Demo", "Requirements", "Communication",
-                     "Recommendation", "Summary", "Strengths", "Improvements"]
+        fieldnames = ["Rank", "Candidate", "Overall Score", "Demo Score", "Requirements Score", "Communication Score",
+                     "Recommendation", "Summary", "Strengths", "Improvements", "Detailed Feedback"]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for idx, r in enumerate(results, 1):
             writer.writerow({
                 "Rank": idx,
                 "Candidate": r.get("Candidate", ""),
-                "Score": r.get("Score") or r.get("Overall Score") or "",
-                "Demo": r.get("Demo", ""),
-                "Requirements": r.get("Requirements", ""),
-                "Communication": r.get("Communication", ""),
+                "Overall Score": r.get("Overall Score") or r.get("Score") or "",
+                "Demo Score": r.get("Demo Score") or r.get("Demo") or "",
+                "Requirements Score": r.get("Requirements Score") or r.get("Requirements") or "",
+                "Communication Score": r.get("Communication Score") or r.get("Communication") or "",
                 "Recommendation": r.get("Recommendation", ""),
                 "Summary": r.get("Summary", ""),
-                "Strengths": r.get("Strengths", "").replace("|", ", "),
-                "Improvements": r.get("Improvements", "").replace("|", ", ")
+                "Strengths": (r.get("Strengths") or "").replace("|", ", "),
+                "Improvements": (r.get("Improvements") or "").replace("|", ", "),
+                "Detailed Feedback": r.get("Detailed Feedback") or r.get("Feedback") or ""
             })
     return output.getvalue()
 
@@ -1032,9 +1033,9 @@ with tab3:
 
             with st.expander(f"View Details - {candidate}"):
                 c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-                c1.metric("Demo", r.get('Demo') or '-')
-                c2.metric("Requirements", r.get('Requirements') or '-')
-                c3.metric("Communication", r.get('Communication') or '-')
+                c1.metric("Demo", r.get('Demo Score') or r.get('Demo') or '-')
+                c2.metric("Requirements", r.get('Requirements Score') or r.get('Requirements') or '-')
+                c3.metric("Communication", r.get('Communication Score') or r.get('Communication') or '-')
                 with c4:
                     candidate_pdf = generate_candidate_pdf(r)
                     st.download_button(
@@ -1125,8 +1126,8 @@ with tab5:
                 c1.markdown(f"**📅 Date:** {r.get('Timestamp', '')[:10]}")
                 c2.markdown(f"**🎯 Recommendation:** {rec}")
 
-                demo_s = r.get('Demo') or r.get('Demo Score') or '-'
-                comm_s = r.get('Communication') or r.get('Communication Score') or '-'
+                demo_s = r.get('Demo Score') or r.get('Demo') or '-'
+                comm_s = r.get('Communication Score') or r.get('Communication') or '-'
                 c3.markdown(f"**🎬 Demo:** {demo_s}")
                 c4.markdown(f"**🗣️ Comm:** {comm_s}")
 
