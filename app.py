@@ -599,11 +599,10 @@ with tab2:
     batch_assessment = st.selectbox("Assessment Type for Batch", get_saved_assessments() or ["No assessments - create one first"])
 
     batch_method = st.radio("Batch Input Method",
-                           ["📁 Upload Videos", "🔗 Loom URLs", "📂 Google Drive Folder"],
+                           ["📁 Upload Videos", "📂 Google Drive Folder"],
                            horizontal=True)
 
     batch_videos = None
-    batch_urls = None
     drive_folder_url = None
 
     if batch_method == "📁 Upload Videos":
@@ -614,12 +613,6 @@ with tab2:
             for v in batch_videos:
                 candidate = os.path.splitext(v.name)[0]
                 st.write(f"• {candidate}")
-
-    elif batch_method == "🔗 Loom URLs":
-        batch_urls = st.text_area("Loom URLs (one per line)",
-                                  placeholder="CandidateName1, https://www.loom.com/share/xxx\nCandidateName2, https://www.loom.com/share/yyy",
-                                  height=150,
-                                  help="Format: CandidateName, LoomURL (one per line)")
 
     else:  # Google Drive Folder
         st.info("💡 **How to use Google Drive:**\n1. Create a folder in Google Drive\n2. Upload all candidate videos (name files as CandidateName.mp4)\n3. Right-click folder → Share → Change to 'Anyone with the link'\n4. Copy the folder link and paste below")
@@ -641,14 +634,6 @@ with tab2:
                 for v in batch_videos:
                     candidate = os.path.splitext(v.name)[0]
                     batch_items.append({"candidate": candidate, "video": v, "type": "file"})
-
-            elif batch_method == "🔗 Loom URLs" and batch_urls:
-                for line in batch_urls.strip().split("\n"):
-                    if "," in line:
-                        parts = line.split(",", 1)
-                        candidate = parts[0].strip()
-                        url = parts[1].strip()
-                        batch_items.append({"candidate": candidate, "url": url, "type": "url"})
 
             elif batch_method == "📂 Google Drive Folder" and drive_folder_url:
                 with st.status("📥 Downloading videos from Google Drive...", expanded=True) as dl_status:
@@ -681,11 +666,6 @@ with tab2:
                                 delete_after = True
                             elif item["type"] == "drive":
                                 tmp_path = item["path"]  # Already downloaded
-                                delete_after = True
-                            else:  # Loom URL
-                                tmp_path = tempfile.mktemp(suffix=".mp4")
-                                if not download_loom_video(item["url"], tmp_path):
-                                    raise Exception("Failed to download from Loom")
                                 delete_after = True
 
                             result = evaluate_video_with_gemini(tmp_path, item["candidate"], batch_assessment, kb, "")
