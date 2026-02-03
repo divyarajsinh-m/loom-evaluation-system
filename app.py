@@ -232,7 +232,9 @@ Please analyze this Loom recording and provide a detailed JSON response with the
     "requirements_score": <integer 0-100>,
     "communication_score": <integer 0-100>,
     "demo_working": <true or false>,
+    "demo_description": "<detailed description of what was demonstrated, what worked, what didn't work, and the overall quality of the demo>",
     "communication_clear": <true or false>,
+    "communication_description": "<detailed description of the candidate's communication style, clarity, pacing, and presentation skills>",
     "strengths": ["strength 1", "strength 2", ...],
     "improvements": ["area 1", "area 2", ...],
     "requirements_met": ["req 1", "req 2", ...],
@@ -409,7 +411,9 @@ Analyze the video carefully and provide a detailed JSON response with these exac
     "requirements_score": <integer 0-100>,
     "communication_score": <integer 0-100>,
     "demo_working": <true or false>,
+    "demo_description": "<detailed description of what was demonstrated, what worked, what didn't work, and the overall quality of the demo>",
     "communication_clear": <true or false>,
+    "communication_description": "<detailed description of the candidate's communication style, clarity, pacing, and presentation skills>",
     "strengths": ["strength 1", "strength 2", ...],
     "improvements": ["area 1", "area 2", ...],
     "requirements_met": ["req 1", "req 2", ...],
@@ -455,7 +459,8 @@ def save_result(result, candidate_name, assessment_name):
         if not exists:
             writer.writerow(["Timestamp", "Candidate", "Assessment", "Score", "Demo", "Requirements",
                            "Communication", "Recommendation", "Summary", "Strengths", "Improvements",
-                           "Met", "Missing", "Demo Working", "Comm Clear", "Moments", "Feedback"])
+                           "Met", "Missing", "Demo Working", "Demo Description", "Comm Clear",
+                           "Comm Description", "Moments", "Feedback"])
         writer.writerow([
             datetime.now().isoformat(),
             candidate_name,
@@ -471,7 +476,9 @@ def save_result(result, candidate_name, assessment_name):
             "|".join(result.get("requirements_met", [])),
             "|".join(result.get("requirements_missing", [])),
             result.get("demo_working"),
+            result.get("demo_description", ""),
             result.get("communication_clear"),
+            result.get("communication_description", ""),
             json.dumps(result.get("key_moments", [])),
             result.get("detailed_feedback")
         ])
@@ -640,6 +647,26 @@ def generate_candidate_pdf(result: dict) -> bytes:
     pdf.multi_cell(190, 5, summary_text)
     pdf.ln(5)
 
+    # Demo Description
+    demo_desc = result.get("Demo Description", "")
+    if demo_desc:
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'DEMO DESCRIPTION', ln=True)
+        pdf.set_font('Helvetica', '', 9)
+        demo_desc_text = str(demo_desc)[:1500]
+        pdf.multi_cell(190, 5, demo_desc_text)
+        pdf.ln(5)
+
+    # Communication Description
+    comm_desc = result.get("Comm Description") or result.get("Communication Description", "")
+    if comm_desc:
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.cell(0, 7, 'COMMUNICATION DESCRIPTION', ln=True)
+        pdf.set_font('Helvetica', '', 9)
+        comm_desc_text = str(comm_desc)[:1500]
+        pdf.multi_cell(190, 5, comm_desc_text)
+        pdf.ln(5)
+
     # Strengths
     strengths = result.get("Strengths", "")
     if strengths:
@@ -679,7 +706,8 @@ def generate_assessment_csv(results: list) -> str:
     output = io.StringIO()
     if results:
         fieldnames = ["Rank", "Candidate", "Overall Score", "Demo Score", "Requirements Score", "Communication Score",
-                     "Recommendation", "Summary", "Strengths", "Improvements", "Detailed Feedback"]
+                     "Recommendation", "Demo Working", "Demo Description", "Communication Clear", "Communication Description",
+                     "Summary", "Strengths", "Improvements", "Requirements Met", "Requirements Missing", "Detailed Feedback"]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for idx, r in enumerate(results, 1):
@@ -691,9 +719,15 @@ def generate_assessment_csv(results: list) -> str:
                 "Requirements Score": r.get("Requirements Score") or r.get("Requirements") or "",
                 "Communication Score": r.get("Communication Score") or r.get("Communication") or "",
                 "Recommendation": r.get("Recommendation", ""),
+                "Demo Working": r.get("Demo Working", ""),
+                "Demo Description": r.get("Demo Description", ""),
+                "Communication Clear": r.get("Communication Clear") or r.get("Comm Clear", ""),
+                "Communication Description": r.get("Comm Description") or r.get("Communication Description", ""),
                 "Summary": r.get("Summary", ""),
                 "Strengths": (r.get("Strengths") or "").replace("|", ", "),
                 "Improvements": (r.get("Improvements") or "").replace("|", ", "),
+                "Requirements Met": (r.get("Requirements Met") or r.get("Met") or "").replace("|", ", "),
+                "Requirements Missing": (r.get("Requirements Missing") or r.get("Missing") or "").replace("|", ", "),
                 "Detailed Feedback": r.get("Detailed Feedback") or r.get("Feedback") or ""
             })
     return output.getvalue()
@@ -1032,22 +1066,127 @@ with tab3:
             """, unsafe_allow_html=True)
 
             with st.expander(f"View Details - {candidate}"):
-                c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+                # Scores row
+                c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
                 c1.metric("Demo", r.get('Demo Score') or r.get('Demo') or '-')
                 c2.metric("Requirements", r.get('Requirements Score') or r.get('Requirements') or '-')
                 c3.metric("Communication", r.get('Communication Score') or r.get('Communication') or '-')
-                with c4:
-                    candidate_pdf = generate_candidate_pdf(r)
-                    st.download_button(
-                        "📄 PDF",
-                        candidate_pdf,
-                        f"{candidate.replace(' ', '_')}_report.pdf",
-                        "application/pdf",
-                        key=f"pdf_{idx}_{candidate}"
-                    )
-                st.markdown(f"**Summary:** {r.get('Summary', 'N/A')}")
-                if r.get('Strengths'):
-                    st.markdown(f"**Strengths:** {r.get('Strengths').replace('|', ', ')}")
+
+                # Demo Working & Communication Clear
+                demo_working = r.get('Demo Working', '')
+                demo_working_text = "✅ Yes" if str(demo_working).lower() in ['true', 'yes', '1'] else "❌ No" if demo_working else "-"
+                c4.metric("Demo Working", demo_working_text)
+
+                comm_clear = r.get('Communication Clear') or r.get('Comm Clear', '')
+                comm_clear_text = "✅ Yes" if str(comm_clear).lower() in ['true', 'yes', '1'] else "❌ No" if comm_clear else "-"
+                c5.metric("Comm Clear", comm_clear_text)
+
+                # PDF Download
+                candidate_pdf = generate_candidate_pdf(r)
+                st.download_button(
+                    "📄 Download PDF Report",
+                    candidate_pdf,
+                    f"{candidate.replace(' ', '_')}_report.pdf",
+                    "application/pdf",
+                    key=f"pdf_{idx}_{candidate}",
+                    use_container_width=True
+                )
+
+                st.markdown("---")
+
+                # Summary
+                st.markdown(f"**📝 Summary:**")
+                st.info(r.get('Summary', 'N/A'))
+
+                # Demo and Communication Descriptions
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**🎬 Demo Description:**")
+                    demo_desc = r.get('Demo Description', '')
+                    if demo_desc:
+                        st.markdown(demo_desc)
+                    else:
+                        st.markdown("_No demo description available_")
+
+                with col2:
+                    st.markdown("**🗣️ Communication Description:**")
+                    comm_desc = r.get('Comm Description') or r.get('Communication Description', '')
+                    if comm_desc:
+                        st.markdown(comm_desc)
+                    else:
+                        st.markdown("_No communication description available_")
+
+                # Strengths and Improvements side by side
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**💪 Strengths:**")
+                    strengths = r.get('Strengths', '')
+                    if strengths:
+                        for s in str(strengths).split("|"):
+                            if s.strip():
+                                st.markdown(f"✅ {s.strip()}")
+                    else:
+                        st.markdown("_No strengths recorded_")
+
+                with col2:
+                    st.markdown("**📈 Areas for Improvement:**")
+                    improvements = r.get('Improvements', '')
+                    if improvements:
+                        for i in str(improvements).split("|"):
+                            if i.strip():
+                                st.markdown(f"🔸 {i.strip()}")
+                    else:
+                        st.markdown("_No improvements recorded_")
+
+                # Requirements Met and Missing
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**✅ Requirements Met:**")
+                    req_met = r.get('Requirements Met') or r.get('Met', '')
+                    if req_met:
+                        for req in str(req_met).split("|"):
+                            if req.strip():
+                                st.markdown(f"• {req.strip()}")
+                    else:
+                        st.markdown("_No requirements data_")
+
+                with col2:
+                    st.markdown("**❌ Requirements Missing:**")
+                    req_missing = r.get('Requirements Missing') or r.get('Missing', '')
+                    if req_missing:
+                        for req in str(req_missing).split("|"):
+                            if req.strip():
+                                st.markdown(f"• {req.strip()}")
+                    else:
+                        st.markdown("_None - All requirements met!_")
+
+                # Key Moments
+                st.markdown("**⏱️ Key Moments:**")
+                moments_raw = r.get('Key Moments') or r.get('Moments', '')
+                if moments_raw:
+                    try:
+                        moments = json.loads(moments_raw) if isinstance(moments_raw, str) else moments_raw
+                        if moments and isinstance(moments, list):
+                            for m in moments:
+                                time_str = m.get('time', '')
+                                note = m.get('note', '')
+                                moment_type = m.get('type', 'neutral')
+                                icon = "🟢" if moment_type == 'positive' else "🔴" if moment_type == 'negative' else "⚪"
+                                st.markdown(f"{icon} **{time_str}** - {note}")
+                        else:
+                            st.markdown("_No key moments recorded_")
+                    except:
+                        st.markdown(f"_{moments_raw}_")
+                else:
+                    st.markdown("_No key moments recorded_")
+
+                # Detailed Feedback
+                st.markdown("**📋 Detailed Feedback:**")
+                detailed_feedback = r.get('Detailed Feedback') or r.get('Feedback', '')
+                if detailed_feedback:
+                    st.markdown(detailed_feedback)
+                else:
+                    st.markdown("_No detailed feedback available_")
 
 # ============== TAB 4: KNOWLEDGE BASE ==============
 with tab4:
@@ -1122,21 +1261,135 @@ with tab5:
             score = r.get('Score') or r.get('Overall Score') or '-'
 
             with st.expander(f"{icon} **{r.get('Candidate', 'Unknown')}** — {r.get('Assessment', '')} — Score: {score}"):
-                c1, c2, c3, c4 = st.columns(4)
+                # Date and recommendation row
+                c1, c2 = st.columns(2)
                 c1.markdown(f"**📅 Date:** {r.get('Timestamp', '')[:10]}")
                 c2.markdown(f"**🎯 Recommendation:** {rec}")
 
+                # Scores row
+                c1, c2, c3, c4, c5 = st.columns(5)
                 demo_s = r.get('Demo Score') or r.get('Demo') or '-'
+                req_s = r.get('Requirements Score') or r.get('Requirements') or '-'
                 comm_s = r.get('Communication Score') or r.get('Communication') or '-'
-                c3.markdown(f"**🎬 Demo:** {demo_s}")
-                c4.markdown(f"**🗣️ Comm:** {comm_s}")
+                c1.metric("Demo", demo_s)
+                c2.metric("Requirements", req_s)
+                c3.metric("Communication", comm_s)
 
-                st.markdown(f"**📝 Summary:** {r.get('Summary', 'N/A')}")
+                # Demo Working & Communication Clear
+                demo_working = r.get('Demo Working', '')
+                demo_working_text = "✅ Yes" if str(demo_working).lower() in ['true', 'yes', '1'] else "❌ No" if demo_working else "-"
+                c4.metric("Demo Working", demo_working_text)
 
-                if r.get('Strengths'):
-                    st.markdown(f"**💪 Strengths:** {r.get('Strengths').replace('|', ', ')}")
-                if r.get('Improvements'):
-                    st.markdown(f"**📈 Improvements:** {r.get('Improvements').replace('|', ', ')}")
+                comm_clear = r.get('Communication Clear') or r.get('Comm Clear', '')
+                comm_clear_text = "✅ Yes" if str(comm_clear).lower() in ['true', 'yes', '1'] else "❌ No" if comm_clear else "-"
+                c5.metric("Comm Clear", comm_clear_text)
+
+                st.markdown("---")
+
+                # Summary
+                st.markdown(f"**📝 Summary:**")
+                st.info(r.get('Summary', 'N/A'))
+
+                # Demo and Communication Descriptions
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**🎬 Demo Description:**")
+                    demo_desc = r.get('Demo Description', '')
+                    if demo_desc:
+                        st.markdown(demo_desc)
+                    else:
+                        st.markdown("_No demo description available_")
+
+                with col2:
+                    st.markdown("**🗣️ Communication Description:**")
+                    comm_desc = r.get('Comm Description') or r.get('Communication Description', '')
+                    if comm_desc:
+                        st.markdown(comm_desc)
+                    else:
+                        st.markdown("_No communication description available_")
+
+                # Strengths and Improvements
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**💪 Strengths:**")
+                    strengths = r.get('Strengths', '')
+                    if strengths:
+                        for s in str(strengths).split("|"):
+                            if s.strip():
+                                st.markdown(f"✅ {s.strip()}")
+                    else:
+                        st.markdown("_No strengths recorded_")
+
+                with col2:
+                    st.markdown("**📈 Areas for Improvement:**")
+                    improvements = r.get('Improvements', '')
+                    if improvements:
+                        for i in str(improvements).split("|"):
+                            if i.strip():
+                                st.markdown(f"🔸 {i.strip()}")
+                    else:
+                        st.markdown("_No improvements recorded_")
+
+                # Requirements Met and Missing
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**✅ Requirements Met:**")
+                    req_met = r.get('Requirements Met') or r.get('Met', '')
+                    if req_met:
+                        for req in str(req_met).split("|"):
+                            if req.strip():
+                                st.markdown(f"• {req.strip()}")
+                    else:
+                        st.markdown("_No requirements data_")
+
+                with col2:
+                    st.markdown("**❌ Requirements Missing:**")
+                    req_missing = r.get('Requirements Missing') or r.get('Missing', '')
+                    if req_missing:
+                        for req in str(req_missing).split("|"):
+                            if req.strip():
+                                st.markdown(f"• {req.strip()}")
+                    else:
+                        st.markdown("_None - All requirements met!_")
+
+                # Key Moments
+                st.markdown("**⏱️ Key Moments:**")
+                moments_raw = r.get('Key Moments') or r.get('Moments', '')
+                if moments_raw:
+                    try:
+                        moments = json.loads(moments_raw) if isinstance(moments_raw, str) else moments_raw
+                        if moments and isinstance(moments, list):
+                            for m in moments:
+                                time_str = m.get('time', '')
+                                note = m.get('note', '')
+                                moment_type = m.get('type', 'neutral')
+                                moment_icon = "🟢" if moment_type == 'positive' else "🔴" if moment_type == 'negative' else "⚪"
+                                st.markdown(f"{moment_icon} **{time_str}** - {note}")
+                        else:
+                            st.markdown("_No key moments recorded_")
+                    except:
+                        st.markdown(f"_{moments_raw}_")
+                else:
+                    st.markdown("_No key moments recorded_")
+
+                # Detailed Feedback
+                st.markdown("**📋 Detailed Feedback:**")
+                detailed_feedback = r.get('Detailed Feedback') or r.get('Feedback', '')
+                if detailed_feedback:
+                    st.markdown(detailed_feedback)
+                else:
+                    st.markdown("_No detailed feedback available_")
+
+                # Download PDF button
+                candidate_pdf = generate_candidate_pdf(r)
+                st.download_button(
+                    "📄 Download PDF Report",
+                    candidate_pdf,
+                    f"{r.get('Candidate', 'Unknown').replace(' ', '_')}_report.pdf",
+                    "application/pdf",
+                    key=f"hist_pdf_{r.get('Timestamp', '')}_{r.get('Candidate', '')}",
+                    use_container_width=True
+                )
 
 # Footer
 st.markdown("""
