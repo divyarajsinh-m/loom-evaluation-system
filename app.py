@@ -589,7 +589,7 @@ def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
 
         pdf.ln(4)
 
-    return pdf.output()
+    return bytes(pdf.output())
 
 
 def generate_candidate_pdf(result: dict) -> bytes:
@@ -671,7 +671,7 @@ def generate_candidate_pdf(result: dict) -> bytes:
         feedback_text = str(feedback)[:2000]
         pdf.multi_cell(190, 5, feedback_text)
 
-    return pdf.output()
+    return bytes(pdf.output())
 
 
 def generate_assessment_csv(results: list) -> str:
