@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+.streamlit/secrets.toml
+__pycache__
+*.pyc
+.DS_Store
+evaluation_results.csv
+knowledge_base/
+batch_videos/
+*.md

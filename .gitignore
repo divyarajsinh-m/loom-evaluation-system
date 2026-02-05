@@ -4,3 +4,4 @@ __pycache__/
 .DS_Store
 evaluation_results.csv
 knowledge_base/
+.streamlit/secrets.toml
