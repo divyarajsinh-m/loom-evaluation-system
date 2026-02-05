@@ -1091,35 +1091,102 @@ def get_rankings(assessment_filter="All"):
 
 # ============== ENHANCED PDF REPORTS ==============
 
-def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
-    """Generate PDF report for an assessment with all candidates - Plivo branded"""
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_left_margin(10)
-    pdf.set_right_margin(10)
-
-    # Plivo branded green header bar
+def _pdf_add_branded_header(pdf, right_text="LOOM EVALUATION SYSTEM"):
+    """Add Plivo branded header bar to a PDF page"""
     pdf.set_fill_color(5, 150, 105)
-    pdf.rect(0, 0, 210, 28, 'F')
-    pdf.set_font('Helvetica', 'B', 16)
+    pdf.rect(0, 0, 210, 24, 'F')
+    # Subtle darker green accent line at bottom
+    pdf.set_fill_color(4, 120, 87)
+    pdf.rect(0, 24, 210, 1, 'F')
+    # Plivo logo (white on green)
+    logo_path = os.path.join(os.path.dirname(__file__), "plivo_logo.png")
+    if os.path.exists(logo_path):
+        try:
+            pdf.image(logo_path, x=12, y=5, h=14)
+        except Exception:
+            pdf.set_font('Helvetica', 'B', 14)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_xy(15, 6)
+            pdf.cell(40, 10, 'PLIVO')
+    else:
+        pdf.set_font('Helvetica', 'B', 14)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_xy(15, 6)
+        pdf.cell(40, 10, 'PLIVO')
+    # Right-aligned text
+    pdf.set_font('Helvetica', '', 9)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_y(6)
-    pdf.cell(0, 8, 'PLIVO', ln=False, align='L')
-    pdf.set_font('Helvetica', '', 10)
-    pdf.cell(0, 8, 'LOOM EVALUATION SYSTEM', ln=True, align='R')
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(12)
+    pdf.set_xy(15, 8)
+    pdf.cell(180, 10, right_text, align='R')
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_y(32)
 
-    # Title
-    pdf.set_font('Helvetica', 'B', 18)
-    pdf.cell(0, 12, f'Assessment Report: {assessment_name}', ln=True, align='C')
+
+def _pdf_add_section_header(pdf, title):
+    """Add a styled section header with green accent"""
+    if pdf.get_y() > 245:
+        pdf.add_page()
+        _pdf_add_branded_header(pdf)
+    pdf.set_fill_color(5, 150, 105)
+    pdf.rect(15, pdf.get_y(), 3, 6, 'F')
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.set_text_color(5, 150, 105)
+    pdf.set_x(20)
+    pdf.cell(0, 6, title.upper(), ln=True)
+    pdf.set_text_color(50, 50, 50)
+    pdf.ln(2)
+
+
+def _pdf_add_body_text(pdf, text, max_chars=2000):
+    """Add body text with proper wrapping"""
+    pdf.set_font('Helvetica', '', 9)
+    pdf.set_text_color(60, 60, 60)
+    clean = str(text or "")[:max_chars]
+    pdf.multi_cell(180, 4.5, clean)
+    pdf.ln(2)
+
+
+def _pdf_add_bullet_list(pdf, items_str, separator="|", prefix_char=None):
+    """Add a bulleted list from pipe-separated string"""
+    pdf.set_font('Helvetica', '', 9)
+    pdf.set_text_color(60, 60, 60)
+    items = [i.strip() for i in str(items_str).split(separator) if i.strip()]
+    for item in items:
+        prefix = f"  {prefix_char}  " if prefix_char else "    "
+        pdf.cell(0, 5, f'{prefix}{item[:120]}', ln=True)
+    pdf.ln(2)
+
+
+def _pdf_add_footer(pdf):
+    """Add footer to current page"""
+    pdf.set_y(-20)
+    pdf.set_font('Helvetica', 'I', 7)
+    pdf.set_text_color(160, 160, 160)
+    pdf.cell(0, 8, f'Plivo LOOM EVALUATION SYSTEM  |  Generated {datetime.now().strftime("%Y-%m-%d %H:%M")}  |  Confidential', align='C')
+
+
+def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
+    """Generate professional PDF report for an assessment with all candidates"""
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=25)
+    pdf.add_page()
+    pdf.set_left_margin(15)
+    pdf.set_right_margin(15)
+
+    # Header
+    _pdf_add_branded_header(pdf, "ASSESSMENT REPORT")
+
+    # Title block
+    pdf.set_font('Helvetica', 'B', 20)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 10, assessment_name, ln=True, align='C')
     pdf.set_font('Helvetica', '', 10)
-    pdf.cell(0, 6, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', ln=True, align='C')
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 6, f'Generated: {datetime.now().strftime("%B %d, %Y at %H:%M")}', ln=True, align='C')
     pdf.cell(0, 6, f'Total Candidates: {len(results)}', ln=True, align='C')
     pdf.ln(8)
 
-    # Summary stats
+    # Summary statistics box
     if results:
         scores = [int(r.get("Score") or r.get("Overall Score") or 0) for r in results]
         avg_score = sum(scores) / len(scores) if scores else 0
@@ -1131,124 +1198,184 @@ def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
         maybe_count = sum(1 for r in recs if r == "MAYBE")
         no_count = sum(1 for r in recs if r == "NO")
 
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'SUMMARY STATISTICS', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        pdf.cell(95, 6, f'Average Score: {avg_score:.1f}', ln=False)
-        pdf.cell(95, 6, f'Score Range: {min_score} - {max_score}', ln=True)
-        pdf.cell(0, 6, f'Recommendations: {strong_yes} Strong Yes | {yes_count} Yes | {maybe_count} Maybe | {no_count} No', ln=True)
-        pdf.ln(5)
+        # Stats box with light background
+        y_start = pdf.get_y()
+        pdf.set_fill_color(245, 247, 250)
+        pdf.rect(15, y_start, 180, 28, 'F')
+        pdf.set_fill_color(5, 150, 105)
+        pdf.rect(15, y_start, 3, 28, 'F')
 
-    # Rankings table header
-    pdf.set_font('Helvetica', 'B', 10)
+        pdf.set_xy(22, y_start + 3)
+        pdf.set_font('Helvetica', 'B', 9)
+        pdf.set_text_color(5, 150, 105)
+        pdf.cell(0, 5, 'OVERVIEW', ln=True)
+        pdf.set_x(22)
+        pdf.set_font('Helvetica', '', 9)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(60, 5, f'Average Score: {avg_score:.1f}/100', ln=False)
+        pdf.cell(60, 5, f'Score Range: {min_score} - {max_score}', ln=False)
+        pdf.cell(60, 5, f'Candidates: {len(results)}', ln=True)
+        pdf.set_x(22)
+        pdf.cell(0, 5, f'Strong Yes: {strong_yes}  |  Yes: {yes_count}  |  Maybe: {maybe_count}  |  No: {no_count}', ln=True)
+        pdf.set_y(y_start + 32)
+
+    # Rankings table
+    _pdf_add_section_header(pdf, "Rankings")
+
+    # Table header
+    pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(5, 150, 105)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(12, 8, 'Rank', border=1, fill=True)
-    pdf.cell(45, 8, 'Candidate', border=1, fill=True)
-    pdf.cell(20, 8, 'Score', border=1, fill=True)
-    pdf.cell(30, 8, 'Recommend', border=1, fill=True)
-    pdf.cell(83, 8, 'Summary', border=1, fill=True)
+    col_widths = [12, 40, 16, 16, 16, 22, 58]
+    headers = ['#', 'Candidate', 'Score', 'Demo', 'Req', 'Recommend', 'Summary']
+    for i, h in enumerate(headers):
+        pdf.cell(col_widths[i], 7, h, border=0, fill=True, align='C')
     pdf.ln()
-    pdf.set_text_color(0, 0, 0)
+    pdf.set_text_color(50, 50, 50)
 
+    # Table rows with alternating backgrounds
     pdf.set_font('Helvetica', '', 8)
-    for idx, r in enumerate(results[:20], 1):
+    for idx, r in enumerate(results[:25], 1):
+        if pdf.get_y() > 260:
+            pdf.add_page()
+            _pdf_add_branded_header(pdf, "ASSESSMENT REPORT")
         score = str(r.get("Score") or r.get("Overall Score") or "-")
-        candidate = str(r.get("Candidate", "Unknown"))[:22]
-        rec = str(r.get("Recommendation", "-"))[:12]
-        summary = str(r.get("Summary", "") or "")[:45]
-        if len(str(r.get("Summary", ""))) > 45:
+        demo = str(r.get("Demo Score") or r.get("Demo") or "-")
+        req = str(r.get("Requirements Score") or r.get("Requirements") or "-")
+        candidate = str(r.get("Candidate", "Unknown"))[:20]
+        rec = str(r.get("Recommendation", "-"))[:10]
+        summary = str(r.get("Summary", "") or "")[:32]
+        if len(str(r.get("Summary", ""))) > 32:
             summary += "..."
 
-        pdf.cell(12, 7, str(idx), border=1)
-        pdf.cell(45, 7, candidate, border=1)
-        pdf.cell(20, 7, score, border=1)
-        pdf.cell(30, 7, rec, border=1)
-        pdf.cell(83, 7, summary, border=1)
+        if idx % 2 == 0:
+            pdf.set_fill_color(248, 250, 252)
+            fill = True
+        else:
+            fill = False
+
+        pdf.cell(col_widths[0], 6, str(idx), border=0, fill=fill, align='C')
+        pdf.cell(col_widths[1], 6, candidate, border=0, fill=fill)
+        pdf.cell(col_widths[2], 6, score, border=0, fill=fill, align='C')
+        pdf.cell(col_widths[3], 6, demo, border=0, fill=fill, align='C')
+        pdf.cell(col_widths[4], 6, req, border=0, fill=fill, align='C')
+        pdf.cell(col_widths[5], 6, rec, border=0, fill=fill, align='C')
+        pdf.cell(col_widths[6], 6, summary, border=0, fill=fill)
         pdf.ln()
 
-    # Detailed results for each candidate
-    pdf.add_page()
+    # Thin line under table
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(4)
 
-    # Repeat branded header
-    pdf.set_fill_color(5, 150, 105)
-    pdf.rect(0, 0, 210, 20, 'F')
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_y(4)
-    pdf.cell(0, 8, f'Detailed Candidate Reports - {assessment_name}', ln=True, align='C')
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(8)
-
+    # Detailed reports - one per candidate
     for idx, r in enumerate(results, 1):
-        if pdf.get_y() > 240:
-            pdf.add_page()
+        pdf.add_page()
+        _pdf_add_branded_header(pdf, f"CANDIDATE {idx} OF {len(results)}")
 
-        # Candidate header with green accent
-        pdf.set_fill_color(5, 150, 105)
-        pdf.rect(10, pdf.get_y(), 3, 7, 'F')
-        pdf.set_font('Helvetica', 'B', 11)
         candidate_name = str(r.get("Candidate", "Unknown"))
-        pdf.cell(5, 7, '', ln=False)
-        pdf.cell(0, 7, f'{idx}. {candidate_name}', ln=True)
+        pdf.set_font('Helvetica', 'B', 16)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 9, candidate_name, ln=True)
+        pdf.set_draw_color(5, 150, 105)
+        pdf.set_line_width(0.5)
+        pdf.line(15, pdf.get_y(), 80, pdf.get_y())
+        pdf.set_line_width(0.2)
+        pdf.ln(4)
 
-        pdf.set_font('Helvetica', '', 9)
+        # Score cards row
         score_val = r.get("Score") or r.get("Overall Score") or "-"
         rec_val = r.get("Recommendation", "-")
-        pdf.cell(0, 5, f'Score: {score_val} | Recommendation: {rec_val}', ln=True)
-
         demo_val = r.get("Demo Score") or r.get("Demo") or "-"
         req_val = r.get("Requirements Score") or r.get("Requirements") or "-"
         comm_val = r.get("Communication Score") or r.get("Communication") or "-"
-        pdf.cell(0, 5, f'Demo: {demo_val} | Requirements: {req_val} | Communication: {comm_val}', ln=True)
+
+        y_cards = pdf.get_y()
+        card_w = 36
+        card_gap = 0
+        cards = [
+            ("OVERALL", str(score_val)),
+            (rec_val.replace("_", " "), "REC"),
+            ("DEMO", str(demo_val)),
+            ("REQUIREMENTS", str(req_val)),
+            ("COMMUNICATION", str(comm_val)),
+        ]
+        for i, (label, value) in enumerate(cards):
+            x = 15 + i * (card_w + card_gap)
+            pdf.set_fill_color(245, 247, 250)
+            pdf.rect(x, y_cards, card_w, 18, 'F')
+            if i == 0:
+                pdf.set_fill_color(5, 150, 105)
+                pdf.rect(x, y_cards, card_w, 18, 'F')
+                pdf.set_text_color(255, 255, 255)
+            elif i == 1:
+                pdf.set_text_color(5, 150, 105)
+            else:
+                pdf.set_text_color(50, 50, 50)
+            pdf.set_xy(x, y_cards + 2)
+            pdf.set_font('Helvetica', 'B', 12 if i < 2 else 11)
+            pdf.cell(card_w, 8, value if i != 1 else label, align='C')
+            pdf.set_xy(x, y_cards + 10)
+            pdf.set_font('Helvetica', '', 6)
+            if i == 0:
+                pdf.set_text_color(220, 240, 230)
+            else:
+                pdf.set_text_color(130, 130, 130)
+            pdf.cell(card_w, 6, label if i != 1 else value, align='C')
+
+        pdf.set_text_color(50, 50, 50)
+        pdf.set_y(y_cards + 24)
 
         # Demo Working & Communication Clear
         demo_working = r.get('Demo Working', '')
-        demo_w_text = "Yes" if str(demo_working).lower() in ['true', 'yes', '1'] else "No" if demo_working else "-"
+        demo_w = "Yes" if str(demo_working).lower() in ['true', 'yes', '1'] else "No" if demo_working else "-"
         comm_clear = r.get('Comm Clear') or r.get('Communication Clear', '')
-        comm_c_text = "Yes" if str(comm_clear).lower() in ['true', 'yes', '1'] else "No" if comm_clear else "-"
-        pdf.cell(0, 5, f'Demo Working: {demo_w_text} | Communication Clear: {comm_c_text}', ln=True)
+        comm_c = "Yes" if str(comm_clear).lower() in ['true', 'yes', '1'] else "No" if comm_clear else "-"
+        pdf.set_font('Helvetica', '', 9)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(90, 5, f'Demo Working: {demo_w}', ln=False)
+        pdf.cell(90, 5, f'Communication Clear: {comm_c}', ln=True)
+        pdf.ln(4)
 
         # Summary
-        summary_text = str(r.get("Summary", "No summary") or "No summary")[:500]
-        pdf.set_font('Helvetica', 'I', 8)
-        pdf.multi_cell(190, 4, f'Summary: {summary_text}')
+        summary = r.get("Summary", "")
+        if summary:
+            _pdf_add_section_header(pdf, "Summary")
+            _pdf_add_body_text(pdf, summary, 1000)
 
         # Demo Description
         demo_desc = r.get("Demo Description", "")
         if demo_desc:
-            pdf.set_font('Helvetica', '', 8)
-            pdf.multi_cell(190, 4, f'Demo: {str(demo_desc)[:400]}')
+            _pdf_add_section_header(pdf, "Demo Description")
+            _pdf_add_body_text(pdf, demo_desc, 1000)
 
         # Communication Description
         comm_desc = r.get("Comm Description") or r.get("Communication Description", "")
         if comm_desc:
-            pdf.multi_cell(190, 4, f'Communication: {str(comm_desc)[:400]}')
+            _pdf_add_section_header(pdf, "Communication Description")
+            _pdf_add_body_text(pdf, comm_desc, 1000)
 
-        # Requirements Met
-        req_met = r.get("Requirements Met") or r.get("Met", "")
-        if req_met:
-            met_text = str(req_met).replace("|", ", ")[:300]
-            pdf.set_font('Helvetica', '', 8)
-            pdf.multi_cell(190, 4, f'Requirements Met: {met_text}')
-
-        # Requirements Missing
-        req_missing = r.get("Requirements Missing") or r.get("Missing", "")
-        if req_missing:
-            missing_text = str(req_missing).replace("|", ", ")[:300]
-            pdf.multi_cell(190, 4, f'Requirements Missing: {missing_text}')
-
-        # Strengths
+        # Strengths & Improvements side concept (stacked for PDF)
         strengths = r.get("Strengths", "")
         if strengths:
-            strengths_text = str(strengths).replace("|", ", ")[:300]
-            pdf.multi_cell(190, 4, f'Strengths: {strengths_text}')
+            _pdf_add_section_header(pdf, "Strengths")
+            _pdf_add_bullet_list(pdf, strengths, "|", "+")
 
-        # Improvements
         improvements = r.get("Improvements", "")
         if improvements:
-            improvements_text = str(improvements).replace("|", ", ")[:300]
-            pdf.multi_cell(190, 4, f'Improvements: {improvements_text}')
+            _pdf_add_section_header(pdf, "Areas for Improvement")
+            _pdf_add_bullet_list(pdf, improvements, "|", "-")
+
+        # Requirements Met / Missing
+        req_met = r.get("Requirements Met") or r.get("Met", "")
+        if req_met:
+            _pdf_add_section_header(pdf, "Requirements Met")
+            _pdf_add_bullet_list(pdf, req_met, "|", "+")
+
+        req_missing = r.get("Requirements Missing") or r.get("Missing", "")
+        if req_missing:
+            _pdf_add_section_header(pdf, "Requirements Missing")
+            _pdf_add_bullet_list(pdf, req_missing, "|", "-")
 
         # Key Moments
         moments_raw = r.get('Key Moments') or r.get('Moments', '')
@@ -1256,172 +1383,164 @@ def generate_assessment_pdf(assessment_name: str, results: list) -> bytes:
             try:
                 moments = json.loads(moments_raw) if isinstance(moments_raw, str) else moments_raw
                 if moments and isinstance(moments, list):
-                    pdf.set_font('Helvetica', 'B', 8)
-                    pdf.cell(0, 4, 'Key Moments:', ln=True)
-                    pdf.set_font('Helvetica', '', 7)
-                    for m in moments[:8]:
+                    _pdf_add_section_header(pdf, "Key Moments")
+                    pdf.set_font('Helvetica', '', 8)
+                    for m in moments[:10]:
                         time_str = m.get('time', '')
                         note = m.get('note', '')
                         moment_type = m.get('type', 'neutral')
-                        marker = "[+]" if moment_type == 'positive' else "[-]" if moment_type == 'negative' else "[o]"
-                        pdf.cell(0, 3.5, f'  {marker} {time_str} - {note[:80]}', ln=True)
+                        if moment_type == 'positive':
+                            pdf.set_text_color(5, 150, 105)
+                            marker = "+"
+                        elif moment_type == 'negative':
+                            pdf.set_text_color(220, 50, 50)
+                            marker = "-"
+                        else:
+                            pdf.set_text_color(100, 100, 100)
+                            marker = "o"
+                        pdf.cell(0, 5, f'    [{marker}] {time_str}  {note[:100]}', ln=True)
+                    pdf.set_text_color(50, 50, 50)
+                    pdf.ln(2)
             except Exception:
                 pass
 
         # Detailed Feedback
         feedback = r.get("Detailed Feedback") or r.get("Feedback", "")
         if feedback:
-            pdf.set_font('Helvetica', '', 8)
-            pdf.multi_cell(190, 4, f'Feedback: {str(feedback)[:500]}')
+            _pdf_add_section_header(pdf, "Detailed Feedback")
+            _pdf_add_body_text(pdf, feedback, 2000)
 
-        pdf.ln(4)
-
-    # Footer
-    pdf.set_font('Helvetica', 'I', 8)
-    pdf.set_text_color(128, 128, 128)
-    pdf.cell(0, 10, f'Generated by Plivo LOOM EVALUATION SYSTEM on {datetime.now().strftime("%Y-%m-%d %H:%M")}', ln=True, align='C')
+        _pdf_add_footer(pdf)
 
     return bytes(pdf.output())
 
 
 def generate_candidate_pdf(result: dict) -> bytes:
-    """Generate PDF report for a single candidate - Plivo branded"""
+    """Generate professional PDF report for a single candidate"""
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=25)
     pdf.add_page()
-    pdf.set_left_margin(10)
-    pdf.set_right_margin(10)
+    pdf.set_left_margin(15)
+    pdf.set_right_margin(15)
 
-    # Plivo branded green header bar
-    pdf.set_fill_color(5, 150, 105)
-    pdf.rect(0, 0, 210, 28, 'F')
-    pdf.set_font('Helvetica', 'B', 16)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_y(6)
-    pdf.cell(0, 8, 'PLIVO', ln=False, align='L')
-    pdf.set_font('Helvetica', '', 10)
-    pdf.cell(0, 8, 'Candidate Evaluation Report', ln=True, align='R')
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(12)
+    # Header
+    _pdf_add_branded_header(pdf, "CANDIDATE EVALUATION REPORT")
 
-    # Candidate info
+    # Candidate info block
     candidate_name = str(result.get("Candidate", "Unknown"))
-    pdf.set_font('Helvetica', 'B', 14)
-    pdf.cell(0, 8, f'Candidate: {candidate_name}', ln=True)
+    pdf.set_font('Helvetica', 'B', 20)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 10, candidate_name, ln=True)
+    pdf.set_draw_color(5, 150, 105)
+    pdf.set_line_width(0.5)
+    pdf.line(15, pdf.get_y(), 80, pdf.get_y())
+    pdf.set_line_width(0.2)
+    pdf.ln(4)
+
     pdf.set_font('Helvetica', '', 10)
+    pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 6, f'Assessment: {result.get("Assessment", "-")}', ln=True)
     timestamp = str(result.get("Timestamp", ""))[:10] if result.get("Timestamp") else "-"
     pdf.cell(0, 6, f'Date: {timestamp}', ln=True)
-    evaluated_by = result.get("Evaluated By", "hr")
+    evaluated_by = result.get("Evaluated By", "")
     if evaluated_by:
         pdf.cell(0, 6, f'Evaluated By: {evaluated_by.replace("_", " ").title()}', ln=True)
-    pdf.ln(8)
+    pdf.ln(6)
 
-    # Scores box
-    pdf.set_font('Helvetica', 'B', 11)
-    pdf.set_fill_color(5, 150, 105)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(0, 7, '  SCORES', ln=True, fill=True)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font('Helvetica', '', 10)
+    # Score cards
     score = result.get("Score") or result.get("Overall Score") or "-"
     rec = result.get("Recommendation", "-")
-    pdf.cell(95, 7, f'Overall Score: {score}', border=1)
-    pdf.cell(95, 7, f'Recommendation: {rec}', border=1, ln=True)
-
     demo = result.get("Demo Score") or result.get("Demo") or "-"
     req = result.get("Requirements Score") or result.get("Requirements") or "-"
     comm = result.get("Communication Score") or result.get("Communication") or "-"
-    pdf.cell(63, 7, f'Demo: {demo}', border=1)
-    pdf.cell(63, 7, f'Requirements: {req}', border=1)
-    pdf.cell(64, 7, f'Communication: {comm}', border=1, ln=True)
+
+    y_cards = pdf.get_y()
+    card_w = 36
+    cards = [
+        ("OVERALL", str(score)),
+        (rec.replace("_", " "), "REC"),
+        ("DEMO", str(demo)),
+        ("REQUIREMENTS", str(req)),
+        ("COMMUNICATION", str(comm)),
+    ]
+    for i, (label, value) in enumerate(cards):
+        x = 15 + i * card_w
+        pdf.set_fill_color(245, 247, 250)
+        pdf.rect(x, y_cards, card_w, 20, 'F')
+        if i == 0:
+            pdf.set_fill_color(5, 150, 105)
+            pdf.rect(x, y_cards, card_w, 20, 'F')
+            pdf.set_text_color(255, 255, 255)
+        elif i == 1:
+            pdf.set_text_color(5, 150, 105)
+        else:
+            pdf.set_text_color(50, 50, 50)
+        pdf.set_xy(x, y_cards + 2)
+        pdf.set_font('Helvetica', 'B', 14 if i < 2 else 12)
+        pdf.cell(card_w, 9, value if i != 1 else label, align='C')
+        pdf.set_xy(x, y_cards + 12)
+        pdf.set_font('Helvetica', '', 7)
+        if i == 0:
+            pdf.set_text_color(220, 240, 230)
+        else:
+            pdf.set_text_color(130, 130, 130)
+        pdf.cell(card_w, 6, label if i != 1 else value, align='C')
+
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_y(y_cards + 26)
 
     # Demo Working & Communication Clear
     demo_working = result.get('Demo Working', '')
-    demo_w_text = "Yes" if str(demo_working).lower() in ['true', 'yes', '1'] else "No" if demo_working else "-"
+    demo_w = "Yes" if str(demo_working).lower() in ['true', 'yes', '1'] else "No" if demo_working else "-"
     comm_clear = result.get('Comm Clear') or result.get('Communication Clear', '')
-    comm_c_text = "Yes" if str(comm_clear).lower() in ['true', 'yes', '1'] else "No" if comm_clear else "-"
-    pdf.cell(95, 7, f'Demo Working: {demo_w_text}', border=1)
-    pdf.cell(95, 7, f'Communication Clear: {comm_c_text}', border=1, ln=True)
-    pdf.ln(8)
+    comm_c = "Yes" if str(comm_clear).lower() in ['true', 'yes', '1'] else "No" if comm_clear else "-"
+    pdf.set_font('Helvetica', '', 9)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(90, 5, f'Demo Working: {demo_w}', ln=False)
+    pdf.cell(90, 5, f'Communication Clear: {comm_c}', ln=True)
+    pdf.ln(6)
 
     # Summary
-    pdf.set_font('Helvetica', 'B', 11)
-    pdf.cell(0, 7, 'SUMMARY', ln=True)
-    pdf.set_font('Helvetica', '', 9)
-    summary_text = str(result.get("Summary", "No summary available") or "No summary available")[:1000]
-    pdf.multi_cell(190, 5, summary_text)
-    pdf.ln(5)
+    summary = result.get("Summary", "")
+    if summary:
+        _pdf_add_section_header(pdf, "Summary")
+        _pdf_add_body_text(pdf, summary, 1500)
 
     # Demo Description
     demo_desc = result.get("Demo Description", "")
     if demo_desc:
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'DEMO DESCRIPTION', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        pdf.multi_cell(190, 5, str(demo_desc)[:1500])
-        pdf.ln(5)
+        _pdf_add_section_header(pdf, "Demo Description")
+        _pdf_add_body_text(pdf, demo_desc, 2000)
 
     # Communication Description
     comm_desc = result.get("Comm Description") or result.get("Communication Description", "")
     if comm_desc:
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'COMMUNICATION DESCRIPTION', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        pdf.multi_cell(190, 5, str(comm_desc)[:1500])
-        pdf.ln(5)
+        _pdf_add_section_header(pdf, "Communication Description")
+        _pdf_add_body_text(pdf, comm_desc, 2000)
 
     # Requirements Met
     req_met = result.get("Requirements Met") or result.get("Met", "")
     if req_met:
-        if pdf.get_y() > 240:
-            pdf.add_page()
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'REQUIREMENTS MET', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        for req_item in str(req_met).split("|"):
-            if req_item.strip():
-                pdf.cell(0, 5, f'  + {req_item.strip()[:100]}', ln=True)
-        pdf.ln(5)
+        _pdf_add_section_header(pdf, "Requirements Met")
+        _pdf_add_bullet_list(pdf, req_met, "|", "+")
 
     # Requirements Missing
     req_missing = result.get("Requirements Missing") or result.get("Missing", "")
     if req_missing:
-        if pdf.get_y() > 240:
-            pdf.add_page()
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'REQUIREMENTS MISSING', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        for req_item in str(req_missing).split("|"):
-            if req_item.strip():
-                pdf.cell(0, 5, f'  - {req_item.strip()[:100]}', ln=True)
-        pdf.ln(5)
+        _pdf_add_section_header(pdf, "Requirements Missing")
+        _pdf_add_bullet_list(pdf, req_missing, "|", "-")
 
     # Strengths
     strengths = result.get("Strengths", "")
     if strengths:
-        if pdf.get_y() > 240:
-            pdf.add_page()
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'STRENGTHS', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        for s in str(strengths).split("|"):
-            if s.strip():
-                pdf.cell(0, 5, f'  + {s.strip()[:100]}', ln=True)
-        pdf.ln(5)
+        _pdf_add_section_header(pdf, "Strengths")
+        _pdf_add_bullet_list(pdf, strengths, "|", "+")
 
     # Improvements
     improvements = result.get("Improvements", "")
     if improvements:
-        if pdf.get_y() > 240:
-            pdf.add_page()
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'AREAS FOR IMPROVEMENT', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        for i in str(improvements).split("|"):
-            if i.strip():
-                pdf.cell(0, 5, f'  - {i.strip()[:100]}', ln=True)
-        pdf.ln(5)
+        _pdf_add_section_header(pdf, "Areas for Improvement")
+        _pdf_add_bullet_list(pdf, improvements, "|", "-")
 
     # Key Moments
     moments_raw = result.get('Key Moments') or result.get('Moments', '')
@@ -1429,71 +1548,90 @@ def generate_candidate_pdf(result: dict) -> bytes:
         try:
             moments = json.loads(moments_raw) if isinstance(moments_raw, str) else moments_raw
             if moments and isinstance(moments, list):
-                if pdf.get_y() > 240:
-                    pdf.add_page()
-                pdf.set_font('Helvetica', 'B', 11)
-                pdf.cell(0, 7, 'KEY MOMENTS', ln=True)
+                _pdf_add_section_header(pdf, "Key Moments")
                 pdf.set_font('Helvetica', '', 9)
                 for m in moments:
                     time_str = m.get('time', '')
                     note = m.get('note', '')
                     moment_type = m.get('type', 'neutral')
-                    marker = "[+]" if moment_type == 'positive' else "[-]" if moment_type == 'negative' else "[o]"
-                    pdf.cell(0, 5, f'  {marker} {time_str} - {note[:100]}', ln=True)
-                pdf.ln(5)
+                    if moment_type == 'positive':
+                        pdf.set_text_color(5, 150, 105)
+                        marker = "+"
+                    elif moment_type == 'negative':
+                        pdf.set_text_color(220, 50, 50)
+                        marker = "-"
+                    else:
+                        pdf.set_text_color(100, 100, 100)
+                        marker = "o"
+                    pdf.cell(0, 5, f'    [{marker}] {time_str}  {note[:120]}', ln=True)
+                pdf.set_text_color(50, 50, 50)
+                pdf.ln(3)
         except Exception:
             pass
 
-    # Detailed feedback
+    # Detailed Feedback
     feedback = result.get("Detailed Feedback") or result.get("Feedback") or ""
     if feedback:
-        if pdf.get_y() > 240:
-            pdf.add_page()
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(0, 7, 'DETAILED FEEDBACK', ln=True)
-        pdf.set_font('Helvetica', '', 9)
-        pdf.multi_cell(190, 5, str(feedback)[:2000])
+        _pdf_add_section_header(pdf, "Detailed Feedback")
+        _pdf_add_body_text(pdf, feedback, 3000)
 
-    # Footer
-    pdf.ln(10)
-    pdf.set_font('Helvetica', 'I', 8)
-    pdf.set_text_color(128, 128, 128)
-    pdf.cell(0, 10, f'Generated by Plivo LOOM EVALUATION SYSTEM on {datetime.now().strftime("%Y-%m-%d %H:%M")}', ln=True, align='C')
+    _pdf_add_footer(pdf)
 
     return bytes(pdf.output())
 
 
 def generate_assessment_csv(results: list) -> str:
-    """Generate CSV for assessment results"""
+    """Generate clean CSV for assessment results"""
     output = io.StringIO()
     if results:
-        fieldnames = ["Rank", "Candidate", "Overall Score", "Demo Score", "Requirements Score", "Communication Score",
-                     "Recommendation", "Demo Working", "Demo Description", "Communication Clear", "Communication Description",
-                     "Summary", "Strengths", "Improvements", "Requirements Met", "Requirements Missing", "Detailed Feedback",
-                     "Evaluation Prompt", "Evaluated By"]
+        fieldnames = [
+            "Rank", "Candidate", "Overall Score", "Recommendation",
+            "Demo Score", "Requirements Score", "Communication Score",
+            "Demo Working", "Communication Clear",
+            "Summary",
+            "Strengths", "Areas for Improvement",
+            "Requirements Met", "Requirements Missing",
+            "Demo Description", "Communication Description",
+            "Detailed Feedback",
+            "Key Moments",
+            "Evaluation Prompt", "Evaluated By", "Date",
+        ]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for idx, r in enumerate(results, 1):
+            # Parse key moments into readable text
+            moments_text = ""
+            moments_raw = r.get("Key Moments") or r.get("Moments", "")
+            if moments_raw:
+                try:
+                    moments = json.loads(moments_raw) if isinstance(moments_raw, str) else moments_raw
+                    if moments and isinstance(moments, list):
+                        moments_text = "; ".join(f"[{m.get('type','')[0].upper() if m.get('type') else 'N'}] {m.get('time','')} - {m.get('note','')}" for m in moments)
+                except Exception:
+                    moments_text = str(moments_raw)
+
             writer.writerow({
                 "Rank": idx,
                 "Candidate": r.get("Candidate", ""),
                 "Overall Score": r.get("Overall Score") or r.get("Score") or "",
+                "Recommendation": r.get("Recommendation", ""),
                 "Demo Score": r.get("Demo Score") or r.get("Demo") or "",
                 "Requirements Score": r.get("Requirements Score") or r.get("Requirements") or "",
                 "Communication Score": r.get("Communication Score") or r.get("Communication") or "",
-                "Recommendation": r.get("Recommendation", ""),
                 "Demo Working": r.get("Demo Working", ""),
-                "Demo Description": r.get("Demo Description", ""),
                 "Communication Clear": r.get("Communication Clear") or r.get("Comm Clear", ""),
-                "Communication Description": r.get("Comm Description") or r.get("Communication Description", ""),
                 "Summary": r.get("Summary", ""),
                 "Strengths": (r.get("Strengths") or "").replace("|", ", "),
-                "Improvements": (r.get("Improvements") or "").replace("|", ", "),
+                "Areas for Improvement": (r.get("Improvements") or "").replace("|", ", "),
                 "Requirements Met": (r.get("Requirements Met") or r.get("Met") or "").replace("|", ", "),
                 "Requirements Missing": (r.get("Requirements Missing") or r.get("Missing") or "").replace("|", ", "),
+                "Demo Description": r.get("Demo Description", ""),
+                "Communication Description": r.get("Comm Description") or r.get("Communication Description", ""),
                 "Detailed Feedback": r.get("Detailed Feedback") or r.get("Feedback") or "",
+                "Key Moments": moments_text,
                 "Evaluation Prompt": r.get("Evaluation Prompt", ""),
                 "Evaluated By": r.get("Evaluated By", ""),
+                "Date": str(r.get("Timestamp", ""))[:10],
             })
     return output.getvalue()
 
